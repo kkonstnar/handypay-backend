@@ -1,8 +1,12 @@
 import { betterAuth } from "better-auth";
-import { pg } from "@better-auth/pg";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "pg";
 
 export const auth = betterAuth({
-  database: pg(process.env.DATABASE_URL!),
+  database: {
+    provider: "postgres",
+    url: process.env.DATABASE_URL!
+  },
   emailAndPassword: {
     enabled: true
   },
