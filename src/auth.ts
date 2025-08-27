@@ -1,13 +1,8 @@
 import { betterAuth } from "better-auth";
+import { pg } from "@better-auth/pg";
 
 export const auth = betterAuth({
-  database: process.env.DATABASE_URL ? {
-    provider: "postgres", 
-    url: process.env.DATABASE_URL
-  } : {
-    provider: "sqlite",
-    url: "file:./auth.db"
-  },
+  database: pg(process.env.DATABASE_URL!),
   emailAndPassword: {
     enabled: true
   },
