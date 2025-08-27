@@ -9,8 +9,11 @@ app.get('/', (c) => {
   return c.json({ message: 'HandyPay Auth Server is running!' });
 });
 
-// Better Auth routes
-app.on(['GET', 'POST'], '/auth/*', (c) => auth.handler(c.req.raw));
+// Better Auth routes - handle all auth endpoints
+app.all('/auth/*', (c) => {
+  console.log('Better Auth route hit:', c.req.method, c.req.url);
+  return auth.handler(c.req.raw);
+});
 
 // Mobile redirect handler
 app.get('/auth/callback/google', async (c) => {
