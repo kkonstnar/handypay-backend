@@ -1,55 +1,42 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
+import { cors } from 'hono/cors';
 import { auth } from './auth.js';
 
 const app = new Hono();
+
+// CORS middleware first
+app.use('*', cors({
+  origin: ['handypay://', 'https://handypay-backend.onrender.com'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true,
+}));
 
 // Health check endpoint
 app.get('/', (c) => {
   return c.json({ message: 'HandyPay Auth Server is running!' });
 });
 
-// Better Auth routes - handle all auth endpoints
-app.all('/auth/*', (c) => {
-  console.log('Better Auth route hit:', c.req.method, c.req.url);
-  return auth.handler(c.req.raw);
-});
-
-// Mobile redirect handler
-app.get('/auth/callback/google', async (c) => {
-  console.log('Google callback hit, redirecting to mobile app');
-  // Return HTML that redirects to mobile app
-  return c.html(`
-    <html>
-      <head>
-        <title>Redirecting...</title>
-      </head>
-      <body>
-        <script>
-          window.location.href = 'handypay://auth/callback?success=true';
-        </script>
-        <p>Redirecting to HandyPay app...</p>
-      </body>
-    </html>
-  `);
-});
-
-// CORS for mobile app
-app.use('*', async (c, next) => {
-  c.header('Access-Control-Allow-Origin', '*');
-  c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+// Better Auth handler - this should handle ALL /auth/* routes
+app.all('/auth/*', async (c) => {
+  console.log(`Better Auth route: ${c.req.method} ${c.req.url}`);
   
-  if (c.req.method === 'OPTIONS') {
-    return c.text('', 200);
+  try {
+    const response = await auth.handler(c.req.raw);
+    console.log('Better Auth response status:', response.status);
+    return response;
+  } catch (error) {
+    console.error('Better Auth error:', error);
+    return c.json({ error: 'Authentication error' }, 500);
   }
-  
-  await next();
 });
 
 const port = parseInt(process.env.PORT || '3000');
 
 console.log(`🚀 Server starting on port ${port}`);
+console.log(`📍 Better Auth URL: ${process.env.BETTER_AUTH_URL}`);
+console.log(`🔑 Google Client ID configured: ${!!process.env.GOOGLE_CLIENT_ID}`);
 
 serve({
   fetch: app.fetch,
