@@ -30,8 +30,15 @@ export const auth = betterAuth({
     async redirect({ url, baseUrl }: { url: string; baseUrl: string }) {
       console.log('Better Auth redirect callback:', { url, baseUrl });
       
-      // If coming from OAuth callback, redirect back to mobile app
+      // Check if this is a mobile redirect (contains handypay://)
+      if (url.includes('handypay://')) {
+        console.log('Mobile redirect detected:', url);
+        return url; // Use the original mobile redirect URL
+      }
+      
+      // If coming from OAuth callback and no mobile redirect, default to mobile app
       if (url.includes('/callback/google') || url.includes('/callback/apple')) {
+        console.log('OAuth callback without mobile redirect, using default');
         return "handypay://auth/callback";
       }
       

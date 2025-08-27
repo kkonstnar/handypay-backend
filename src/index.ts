@@ -12,6 +12,25 @@ app.get('/', (c) => {
 // Better Auth routes
 app.on(['GET', 'POST'], '/auth/*', (c) => auth.handler(c.req.raw));
 
+// Mobile redirect handler
+app.get('/auth/callback/google', async (c) => {
+  console.log('Google callback hit, redirecting to mobile app');
+  // Return HTML that redirects to mobile app
+  return c.html(`
+    <html>
+      <head>
+        <title>Redirecting...</title>
+      </head>
+      <body>
+        <script>
+          window.location.href = 'handypay://auth/callback?success=true';
+        </script>
+        <p>Redirecting to HandyPay app...</p>
+      </body>
+    </html>
+  `);
+});
+
 // CORS for mobile app
 app.use('*', async (c, next) => {
   c.header('Access-Control-Allow-Origin', '*');
