@@ -12,6 +12,9 @@ export const auth = betterAuth({
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      redirectURI: (process.env.BETTER_AUTH_URL || "http://localhost:3000") + "/auth/callback/google",
+      scopes: ["openid", "profile", "email"],
+      prompt: "select_account"
     }
   },
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
@@ -22,5 +25,26 @@ export const auth = betterAuth({
   trustedOrigins: [
     "handypay://",
     "https://handypay-backend.onrender.com"
-  ]
+  ],
+  callbacks: {
+    async redirect({ url, baseUrl }: { url: string; baseUrl: string }) {
+      console.log('Better Auth redirect callback:', { url, baseUrl });
+      
+      // If coming from OAuth callback, redirect back to mobile app
+      if (url.includes('/callback/google') || url.includes('/callback/apple')) {
+        return "handypay://auth/callback";
+      }
+      
+      return url.startsWith(baseUrl) ? url : baseUrl;
+    },
+  },
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: false,
+        defaultValue: "user",
+      },
+    }
+  }
 });
