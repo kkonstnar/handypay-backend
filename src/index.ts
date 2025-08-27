@@ -15,12 +15,40 @@ app.use('*', cors({
 
 // Health check endpoint
 app.get('/', (c) => {
-  return c.json({ message: 'HandyPay Auth Server is running!' });
+  return c.json({ 
+    message: 'HandyPay Auth Server is running!',
+    auth: !!auth,
+    env: {
+      hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+      hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      hasBetterAuthUrl: !!process.env.BETTER_AUTH_URL,
+      hasBetterAuthSecret: !!process.env.BETTER_AUTH_SECRET,
+      hasDatabaseUrl: !!process.env.DATABASE_URL
+    }
+  });
+});
+
+// Test route to check Better Auth initialization
+app.get('/test-auth', async (c) => {
+  try {
+    console.log('Testing Better Auth initialization...');
+    
+    // Try to call a simple Better Auth API method
+    const result = await auth.api.listSessions({
+      headers: c.req.raw.headers
+    });
+    
+    return c.json({ message: 'Better Auth is working', result });
+  } catch (error) {
+    console.error('Better Auth test error:', error);
+    return c.json({ error: error.message, stack: error.stack }, 500);
+  }
 });
 
 // Better Auth handler - this should handle ALL /auth/* routes
 app.all('/auth/*', async (c) => {
   console.log(`Better Auth route: ${c.req.method} ${c.req.url}`);
+  console.log('Request headers:', Object.fromEntries(c.req.raw.headers.entries()));
   
   try {
     const response = await auth.handler(c.req.raw);
@@ -28,7 +56,7 @@ app.all('/auth/*', async (c) => {
     return response;
   } catch (error) {
     console.error('Better Auth error:', error);
-    return c.json({ error: 'Authentication error' }, 500);
+    return c.json({ error: 'Authentication error', details: error.message }, 500);
   }
 });
 
