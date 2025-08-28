@@ -454,6 +454,111 @@ app.get("/stripe/refresh", async (c) => {
   return c.html(html);
 });
 
+// Google OAuth callback endpoint
+app.get("/auth/google/callback", async (c) => {
+  const code = c.req.query("code");
+  const error = c.req.query("error");
+  const state = c.req.query("state");
+
+  console.log("Google OAuth callback:", { code: !!code, error, state });
+
+  if (error) {
+    console.error("Google OAuth error:", error);
+    return c.redirect(`handypay://auth/google?error=${encodeURIComponent(error)}`);
+  }
+
+  if (code) {
+    console.log("Google OAuth success, redirecting to app with code");
+    return c.redirect(
+      `handypay://auth/google?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}`
+    );
+  }
+
+  console.error("Google OAuth callback missing code and error");
+  return c.redirect(`handypay://auth/google?error=invalid_request`);
+});
+
+// Google OAuth token exchange endpoint
+app.post("/auth/google/token", async (c) => {
+  try {
+    const { code, provider } = await c.req.json();
+
+    console.log(`${provider} token exchange request received`);
+
+    if (!code) {
+      return c.json({ error: "Authorization code is required" }, 400);
+    }
+
+    // Exchange code for tokens
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+        code: code,
+        grant_type: "authorization_code",
+        redirect_uri: "https://handypay-backend.onrender.com/auth/google/callback",
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      console.error("Google token exchange failed:", errorText);
+      return c.json({ error: "Token exchange failed" }, 400);
+    }
+
+    const tokens = await tokenResponse.json();
+    console.log("Google tokens received:", { access_token: !!tokens.access_token });
+
+    // Get user info from Google
+    const userResponse = await fetch(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+      }
+    );
+
+    if (!userResponse.ok) {
+      console.error("Failed to get user info from Google");
+      return c.json({ error: "Failed to get user info" }, 400);
+    }
+
+    const userInfo = await userResponse.json();
+    console.log("Google user info:", { id: userInfo.id, email: userInfo.email });
+
+    // Return user data to mobile app
+    return c.json({
+      user: {
+        id: userInfo.id,
+        email: userInfo.email,
+        name: userInfo.name,
+        firstName: userInfo.given_name,
+        lastName: userInfo.family_name,
+        picture: userInfo.picture,
+      },
+      tokens: {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_in: tokens.expires_in,
+      },
+    });
+  } catch (error) {
+    console.error("Google token exchange error:", error);
+    return c.json(
+      {
+        error: "Token exchange failed",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      500
+    );
+  }
+});
+
 // Auth verification endpoint for mobile app
 app.post("/auth/verify", async (c) => {
   try {
