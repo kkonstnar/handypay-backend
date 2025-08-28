@@ -181,6 +181,54 @@ app.get("/api/stripe/user-account/:userId", async (c) => {
   }
 });
 
+// Stripe Connect endpoint for updating onboarding completion status
+app.post("/api/stripe/complete-onboarding", async (c) => {
+  try {
+    const requestData = await c.req.json();
+    console.log("Stripe onboarding completion request:", requestData);
+
+    const { userId, stripeAccountId } = requestData;
+
+    if (!userId || !stripeAccountId) {
+      return c.json(
+        {
+          error: "Missing required fields: userId, stripeAccountId",
+        },
+        400
+      );
+    }
+
+    // Update the user's onboarding completion status in the database
+    await db
+      .update(users)
+      .set({
+        stripeOnboardingCompleted: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    console.log(
+      `✅ Marked onboarding as completed for user ${userId} with account ${stripeAccountId}`
+    );
+
+    return c.json({
+      success: true,
+      message: "Onboarding completion status updated successfully",
+    });
+  } catch (error) {
+    console.error("Stripe onboarding completion error:", error);
+    return c.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to update onboarding completion status",
+      },
+      500
+    );
+  }
+});
+
 // Stripe onboarding redirect endpoints
 app.get("/stripe/return", async (c) => {
   console.log("Stripe onboarding completed - showing success page");
@@ -470,17 +518,22 @@ app.get("/auth/google/callback", async (c) => {
     console.error("Google OAuth error:", error);
     redirectUrl = `handypay://google/error?error=${encodeURIComponent(error)}`;
     pageTitle = "Authentication Error";
-    pageMessage = "There was an error with Google authentication. Redirecting back to HandyPay...";
+    pageMessage =
+      "There was an error with Google authentication. Redirecting back to HandyPay...";
   } else if (code) {
     console.log("Google OAuth success, redirecting to app with code");
-    redirectUrl = `handypay://google/success?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}`;
+    redirectUrl = `handypay://google/success?code=${encodeURIComponent(
+      code
+    )}&state=${encodeURIComponent(state || "")}`;
     pageTitle = "Authentication Successful";
-    pageMessage = "Google authentication successful! Redirecting back to HandyPay...";
+    pageMessage =
+      "Google authentication successful! Redirecting back to HandyPay...";
   } else {
     console.error("Google OAuth callback missing code and error");
     redirectUrl = `handypay://google/error?error=invalid_request`;
     pageTitle = "Authentication Error";
-    pageMessage = "Invalid authentication response. Redirecting back to HandyPay...";
+    pageMessage =
+      "Invalid authentication response. Redirecting back to HandyPay...";
   }
 
   const html = `
@@ -600,7 +653,8 @@ app.post("/auth/google/token", async (c) => {
         client_secret: process.env.GOOGLE_CLIENT_SECRET!,
         code: code,
         grant_type: "authorization_code",
-        redirect_uri: "https://handypay-backend.onrender.com/auth/google/callback",
+        redirect_uri:
+          "https://handypay-backend.onrender.com/auth/google/callback",
       }),
     });
 
@@ -611,7 +665,9 @@ app.post("/auth/google/token", async (c) => {
     }
 
     const tokens = await tokenResponse.json();
-    console.log("Google tokens received:", { access_token: !!tokens.access_token });
+    console.log("Google tokens received:", {
+      access_token: !!tokens.access_token,
+    });
 
     // Get user info from Google
     const userResponse = await fetch(
@@ -629,7 +685,10 @@ app.post("/auth/google/token", async (c) => {
     }
 
     const userInfo = await userResponse.json();
-    console.log("Google user info:", { id: userInfo.id, email: userInfo.email });
+    console.log("Google user info:", {
+      id: userInfo.id,
+      email: userInfo.email,
+    });
 
     // Return user data to mobile app
     return c.json({
