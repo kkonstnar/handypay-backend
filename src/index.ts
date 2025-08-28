@@ -462,20 +462,120 @@ app.get("/auth/google/callback", async (c) => {
 
   console.log("Google OAuth callback:", { code: !!code, error, state });
 
+  let redirectUrl: string;
+  let pageTitle: string;
+  let pageMessage: string;
+
   if (error) {
     console.error("Google OAuth error:", error);
-    return c.redirect(`handypay://auth/google?error=${encodeURIComponent(error)}`);
-  }
-
-  if (code) {
+    redirectUrl = `handypay://google/error?error=${encodeURIComponent(error)}`;
+    pageTitle = "Authentication Error";
+    pageMessage = "There was an error with Google authentication. Redirecting back to HandyPay...";
+  } else if (code) {
     console.log("Google OAuth success, redirecting to app with code");
-    return c.redirect(
-      `handypay://auth/google?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}`
-    );
+    redirectUrl = `handypay://google/success?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}`;
+    pageTitle = "Authentication Successful";
+    pageMessage = "Google authentication successful! Redirecting back to HandyPay...";
+  } else {
+    console.error("Google OAuth callback missing code and error");
+    redirectUrl = `handypay://google/error?error=invalid_request`;
+    pageTitle = "Authentication Error";
+    pageMessage = "Invalid authentication response. Redirecting back to HandyPay...";
   }
 
-  console.error("Google OAuth callback missing code and error");
-  return c.redirect(`handypay://auth/google?error=invalid_request`);
+  const html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${pageTitle}</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background-color: #ffffff;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 24px;
+        text-align: center;
+      }
+      .spinner {
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid #3AB75C;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin-bottom: 16px;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .title {
+        font-size: 24px;
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 8px;
+      }
+      .message {
+        font-size: 16px;
+        color: #6b7280;
+        margin-bottom: 24px;
+        line-height: 1.5;
+      }
+      .manual-link {
+        color: #3AB75C;
+        text-decoration: none;
+        font-weight: 500;
+        padding: 12px 24px;
+        border: 1px solid #3AB75C;
+        border-radius: 8px;
+        display: inline-block;
+        margin-top: 16px;
+      }
+      .manual-link:hover {
+        background-color: #3AB75C;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="spinner"></div>
+    <h1 class="title">${pageTitle}</h1>
+    <p class="message">${pageMessage}</p>
+    <a href="${redirectUrl}" class="manual-link">Tap here if not redirected automatically</a>
+
+    <script>
+      console.log('Attempting redirect to:', '${redirectUrl}');
+      
+      // Immediate redirect attempt
+      window.location.href = '${redirectUrl}';
+      
+      // Backup redirect after 1 second
+      setTimeout(() => {
+        console.log('Backup redirect attempt');
+        window.location.href = '${redirectUrl}';
+      }, 1000);
+      
+      // Final fallback after 3 seconds
+      setTimeout(() => {
+        console.log('Final redirect attempt');
+        try {
+          window.location.replace('${redirectUrl}');
+        } catch (error) {
+          console.error('Redirect failed:', error);
+        }
+      }, 3000);
+    </script>
+  </body>
+  </html>
+  `;
+
+  return c.html(html);
 });
 
 // Google OAuth token exchange endpoint
