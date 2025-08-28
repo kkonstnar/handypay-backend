@@ -87,9 +87,23 @@ app.post("/api/stripe/create-account-link", async (c) => {
       );
     }
 
+    // Fast response - check if account already exists
+    let existingAccount = null;
+    if (!account_id) {
+      try {
+        const existing = await StripeService.getUserStripeAccount(userId);
+        if (existing) {
+          existingAccount = existing;
+        }
+      } catch (error) {
+        console.log("No existing account found, creating new one");
+      }
+    }
+
+    // Use existing account if found, otherwise create new one
     const result = await StripeService.createAccountLink({
       userId,
-      account_id,
+      account_id: account_id || existingAccount,
       firstName,
       lastName,
       email,
