@@ -1,10 +1,12 @@
 import { betterAuth } from "better-auth";
+import { expo } from "@better-auth/expo";
 import { Pool } from "pg";
 
 export const auth = betterAuth({
   database: new Pool({
     connectionString: process.env.DATABASE_URL!
   }),
+  plugins: [expo()],
   emailAndPassword: {
     enabled: true
   },
@@ -15,6 +17,12 @@ export const auth = betterAuth({
       redirectURI: (process.env.BETTER_AUTH_URL || "http://localhost:3000") + "/auth/callback/google",
       scopes: ["openid", "profile", "email"],
       prompt: "select_account"
+    },
+    apple: {
+      clientId: process.env.APPLE_CLIENT_ID!,
+      clientSecret: process.env.APPLE_CLIENT_SECRET!,
+      redirectURI: (process.env.BETTER_AUTH_URL || "http://localhost:3000") + "/auth/callback/apple",
+      scopes: ["name", "email"]
     }
   },
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
