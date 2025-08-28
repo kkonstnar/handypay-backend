@@ -240,20 +240,40 @@ app.get("/stripe/return", async (c) => {
       <h1>Setup Complete!</h1>
       <p>Your Stripe merchant account has been successfully configured.</p>
 
+      <div id="countdown" style="font-size: 14px; margin-top: 16px; color: #6b7280;">
+        Returning to HandyPay in <span id="count">2</span> seconds...
+      </div>
+
       <a href="handypay://stripe/success" class="button">
         Return to HandyPay
       </a>
 
       <p style="font-size: 14px; margin-top: 16px; color: #9ca3af;">
-        If the button doesn't work, please go back to the HandyPay app manually.
+        If the automatic redirect doesn't work, tap the button above.
       </p>
     </div>
 
     <script>
-      // Try to automatically redirect to the app
+      let count = 2;
+      const countdownEl = document.getElementById('count');
+
+      const countdown = setInterval(() => {
+        count--;
+        if (countdownEl) {
+          countdownEl.textContent = count.toString();
+        }
+
+        if (count <= 0) {
+          clearInterval(countdown);
+          // Redirect immediately
+          window.location.href = 'handypay://stripe/success';
+        }
+      }, 1000);
+
+      // Also try immediate redirect for better UX
       setTimeout(() => {
         window.location.href = 'handypay://stripe/success';
-      }, 1000);
+      }, 500);
     </script>
   </body>
   </html>
@@ -326,16 +346,40 @@ app.get("/stripe/refresh", async (c) => {
       <h1>Setup Paused</h1>
       <p>You exited the Stripe setup process. You can continue later.</p>
 
+      <div id="countdown" style="font-size: 14px; margin-top: 16px; color: #6b7280;">
+        Returning to HandyPay in <span id="count">2</span> seconds...
+      </div>
+
       <a href="handypay://stripe/refresh" class="button">
         Return to HandyPay
       </a>
+
+      <p style="font-size: 14px; margin-top: 16px; color: #9ca3af;">
+        If the automatic redirect doesn't work, tap the button above.
+      </p>
     </div>
 
     <script>
-      // Try to automatically redirect to the app
+      let count = 2;
+      const countdownEl = document.getElementById('count');
+
+      const countdown = setInterval(() => {
+        count--;
+        if (countdownEl) {
+          countdownEl.textContent = count.toString();
+        }
+
+        if (count <= 0) {
+          clearInterval(countdown);
+          // Redirect immediately
+          window.location.href = 'handypay://stripe/refresh';
+        }
+      }, 1000);
+
+      // Also try immediate redirect for better UX
       setTimeout(() => {
         window.location.href = 'handypay://stripe/refresh';
-      }, 1000);
+      }, 500);
     </script>
   </body>
   </html>
