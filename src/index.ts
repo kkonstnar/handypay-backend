@@ -167,19 +167,277 @@ app.get("/api/stripe/user-account/:userId", async (c) => {
   }
 });
 
-// Stripe onboarding redirect endpoints - Direct redirect to app
+// Stripe onboarding redirect endpoints
 app.get("/stripe/return", async (c) => {
-  console.log("Stripe onboarding completed - redirecting to app");
+  console.log("Stripe onboarding completed - showing success page");
 
-  // Direct redirect to the app without showing any intermediate page
-  return c.redirect('handypay://stripe/success');
+  const html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Setup Complete</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background-color: #ffffff;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .header {
+        padding: 24px 24px 8px;
+        text-align: right;
+      }
+      .close-btn {
+        background: none;
+        border: none;
+        font-size: 24px;
+        color: #6b7280;
+        cursor: pointer;
+        padding: 8px;
+        border-radius: 8px;
+      }
+      .close-btn:hover {
+        background-color: #f3f4f6;
+      }
+      .center-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0 24px;
+      }
+      .success-icon {
+        width: 48px;
+        height: 48px;
+        margin-bottom: 16px;
+      }
+      .title {
+        font-size: 28px;
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 8px;
+        text-align: center;
+        letter-spacing: -1px;
+      }
+      .subtitle {
+        font-size: 16px;
+        color: #6b7280;
+        text-align: center;
+        line-height: 1.5;
+        margin-bottom: 32px;
+        padding: 0 16px;
+      }
+      .continue-btn {
+        background-color: #3AB75C;
+        color: white;
+        border: none;
+        border-radius: 24px;
+        padding: 12px 24px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        width: 100%;
+        max-width: 280px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        margin: 0 auto 24px;
+      }
+      .continue-btn:hover {
+        background-color: #2d8f4c;
+      }
+      .footer-text {
+        text-align: center;
+        font-size: 14px;
+        color: #9ca3af;
+        margin-bottom: 24px;
+        padding: 0 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <button class="close-btn" onclick="closeWindow()">✕</button>
+    </div>
+
+    <div class="center-content">
+      <svg class="success-icon" width="48" height="48" viewBox="0 0 49 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M24.5 48C37.7548 48 48.5 37.2548 48.5 24C48.5 10.7452 37.7548 0 24.5 0C11.2452 0 0.5 10.7452 0.5 24C0.5 37.2548 11.2452 48 24.5 48Z" fill="#3AB75C"/>
+        <path d="M38.2217 17.5032L25.2289 30.4969L24.4995 31.2263L20.5883 35.1366L15.9477 30.4969L10.7773 25.3257L15.418 20.685L20.5883 25.8563L24.4995 21.945L33.5811 12.8635L38.2217 17.5032Z" fill="white"/>
+      </svg>
+      <h1 class="title">Setup Complete!</h1>
+      <p class="subtitle">Your Stripe merchant account has been successfully configured.</p>
+      <a href="handypay://stripe/success" class="continue-btn">Continue to HandyPay</a>
+    </div>
+
+    <p class="footer-text">This page will automatically close and redirect to the app</p>
+
+    <script>
+      // Auto-redirect after 2 seconds
+      setTimeout(() => {
+        window.location.href = 'handypay://stripe/success';
+      }, 2000);
+
+      // Close window function for manual close
+      function closeWindow() {
+        // Try to close the window or redirect to app
+        window.location.href = 'handypay://stripe/success';
+      }
+
+      // Listen for visibility change to handle when user returns to app
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') {
+          // User has switched away from this page (likely to the app)
+          // The redirect will happen automatically
+        }
+      });
+    </script>
+  </body>
+  </html>
+  `;
+
+  return c.html(html);
 });
 
 app.get("/stripe/refresh", async (c) => {
   console.log("Stripe onboarding refresh - user exited");
 
-  // Direct redirect to the app without showing any intermediate page
-  return c.redirect('handypay://stripe/refresh');
+  const html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Setup Paused</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background-color: #ffffff;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .header {
+        padding: 24px 24px 8px;
+        text-align: right;
+      }
+      .close-btn {
+        background: none;
+        border: none;
+        font-size: 24px;
+        color: #6b7280;
+        cursor: pointer;
+        padding: 8px;
+        border-radius: 8px;
+      }
+      .close-btn:hover {
+        background-color: #f3f4f6;
+      }
+      .center-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0 24px;
+      }
+      .icon {
+        width: 48px;
+        height: 48px;
+        margin-bottom: 16px;
+        font-size: 48px;
+      }
+      .title {
+        font-size: 28px;
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 8px;
+        text-align: center;
+        letter-spacing: -1px;
+      }
+      .subtitle {
+        font-size: 16px;
+        color: #6b7280;
+        text-align: center;
+        line-height: 1.5;
+        margin-bottom: 32px;
+        padding: 0 16px;
+      }
+      .continue-btn {
+        background-color: #3b82f6;
+        color: white;
+        border: none;
+        border-radius: 24px;
+        padding: 12px 24px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        width: 100%;
+        max-width: 280px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        margin: 0 auto 24px;
+      }
+      .continue-btn:hover {
+        background-color: #2563eb;
+      }
+      .footer-text {
+        text-align: center;
+        font-size: 14px;
+        color: #9ca3af;
+        margin-bottom: 24px;
+        padding: 0 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <button class="close-btn" onclick="closeWindow()">✕</button>
+    </div>
+
+    <div class="center-content">
+      <div class="icon">⏸️</div>
+      <h1 class="title">Setup Paused</h1>
+      <p class="subtitle">You exited the Stripe setup process. You can continue later.</p>
+      <a href="handypay://stripe/refresh" class="continue-btn">Return to HandyPay</a>
+    </div>
+
+    <p class="footer-text">This page will automatically close and redirect to the app</p>
+
+    <script>
+      // Auto-redirect after 2 seconds
+      setTimeout(() => {
+        window.location.href = 'handypay://stripe/refresh';
+      }, 2000);
+
+      // Close window function for manual close
+      function closeWindow() {
+        window.location.href = 'handypay://stripe/refresh';
+      }
+
+      // Listen for visibility change
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') {
+          // User has switched away from this page
+        }
+      });
+    </script>
+  </body>
+  </html>
+  `;
+
+  return c.html(html);
 });
 
 // Auth verification endpoint for mobile app
