@@ -678,24 +678,24 @@ app.get("/auth/google/callback", async (c) => {
   return c.html(html);
 });
 
-// Google OAuth token exchange endpoint with PKCE support
-app.post("/auth/google/token-pkce", async (c) => {
+// Simple Google OAuth token exchange (non-PKCE)
+app.post("/auth/google/token", async (c) => {
   try {
-    const { code, provider, codeVerifier, redirectUri } = await c.req.json();
+    const { code, provider, redirectUri } = await c.req.json();
 
-    console.log(`${provider} PKCE token exchange request received`);
-    console.log('Code verifier present:', !!codeVerifier);
+    console.log(`${provider} token exchange request received`);
     console.log('Redirect URI:', redirectUri);
 
     if (!code) {
       return c.json({ error: "Authorization code is required" }, 400);
     }
 
-    if (!codeVerifier) {
-      return c.json({ error: "Code verifier is required for PKCE" }, 400);
+    if (!process.env.GOOGLE_CLIENT_SECRET) {
+      console.error("GOOGLE_CLIENT_SECRET not configured");
+      return c.json({ error: "Server configuration error" }, 500);
     }
 
-    // Exchange code for tokens using PKCE
+    // Exchange code for tokens using client secret
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: {
@@ -703,8 +703,8 @@ app.post("/auth/google/token-pkce", async (c) => {
       },
       body: new URLSearchParams({
         client_id: process.env.GOOGLE_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET!, // Use client secret for regular OAuth
         code: code,
-        code_verifier: codeVerifier, // Use code_verifier instead of client_secret for PKCE
         grant_type: "authorization_code",
         redirect_uri: redirectUri || "https://handypay-backend.onrender.com/auth/google/callback",
       }),
@@ -712,129 +712,17 @@ app.post("/auth/google/token-pkce", async (c) => {
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
-      console.error("Google PKCE token exchange failed - Status:", tokenResponse.status);
-      console.error("Google PKCE token exchange failed - Response:", errorText);
-      console.error("Google PKCE token exchange failed - Request details:", {
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        redirect_uri: redirectUri,
-        code: code.substring(0, 20) + "...",
-        hasCodeVerifier: !!codeVerifier
-      });
-      
-      let parsedError;
-      try {
-        parsedError = JSON.parse(errorText);
-      } catch {
-        parsedError = errorText;
-      }
-      
-      return c.json({ 
-        error: "PKCE token exchange failed",
-        details: parsedError,
-        status: tokenResponse.status
-      }, 400);
-    }
-
-    const tokens = await tokenResponse.json();
-    console.log("Google PKCE tokens received:", {
-      access_token: !!tokens.access_token,
-    });
-
-    // Get user info from Google
-    const userResponse = await fetch(
-      "https://www.googleapis.com/oauth2/v2/userinfo",
-      {
-        headers: {
-          Authorization: `Bearer ${tokens.access_token}`,
-        },
-      }
-    );
-
-    if (!userResponse.ok) {
-      console.error("Failed to get user info from Google");
-      return c.json({ error: "Failed to get user info" }, 400);
-    }
-
-    const userInfo = await userResponse.json();
-    console.log("Google user info:", {
-      id: userInfo.id,
-      email: userInfo.email,
-    });
-
-    // Return user data to mobile app
-    return c.json({
-      user: {
-        id: userInfo.id,
-        email: userInfo.email,
-        name: userInfo.name,
-        firstName: userInfo.given_name,
-        lastName: userInfo.family_name,
-        picture: userInfo.picture,
-      },
-      tokens: {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expires_in: tokens.expires_in,
-      },
-    });
-  } catch (error) {
-    console.error("Google PKCE token exchange error:", error);
-    return c.json(
-      {
-        error: "PKCE token exchange failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      500
-    );
-  }
-});
-
-// Google OAuth token exchange endpoint (original - for non-PKCE flows)
-app.post("/auth/google/token", async (c) => {
-  try {
-    const { code, provider } = await c.req.json();
-
-    console.log(`${provider} token exchange request received`);
-
-    if (!code) {
-      return c.json({ error: "Authorization code is required" }, 400);
-    }
-
-    // Exchange code for tokens
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID!,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        code: code,
-        grant_type: "authorization_code",
-        redirect_uri:
-          "https://handypay-backend.onrender.com/auth/google/callback",
-      }),
-    });
-
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
       console.error("Google token exchange failed - Status:", tokenResponse.status);
       console.error("Google token exchange failed - Response:", errorText);
-      console.error("Google token exchange failed - Request details:", {
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        redirect_uri: "https://handypay-backend.onrender.com/auth/google/callback",
-        code: code.substring(0, 20) + "...",
-        hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET
-      });
-      
+
       let parsedError;
       try {
         parsedError = JSON.parse(errorText);
       } catch {
         parsedError = errorText;
       }
-      
-      return c.json({ 
+
+      return c.json({
         error: "Token exchange failed",
         details: parsedError,
         status: tokenResponse.status
@@ -844,6 +732,8 @@ app.post("/auth/google/token", async (c) => {
     const tokens = await tokenResponse.json();
     console.log("Google tokens received:", {
       access_token: !!tokens.access_token,
+      refresh_token: !!tokens.refresh_token,
+      expires_in: tokens.expires_in
     });
 
     // Get user info from Google
@@ -865,6 +755,7 @@ app.post("/auth/google/token", async (c) => {
     console.log("Google user info:", {
       id: userInfo.id,
       email: userInfo.email,
+      name: userInfo.name,
     });
 
     // Return user data to mobile app
@@ -894,6 +785,8 @@ app.post("/auth/google/token", async (c) => {
     );
   }
 });
+
+
 
 // Auth verification endpoint for mobile app
 app.post("/auth/verify", async (c) => {
