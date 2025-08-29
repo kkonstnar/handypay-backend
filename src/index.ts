@@ -389,7 +389,12 @@ app.post("/api/stripe/create-payment-link", async (c) => {
       );
     }
 
-    console.log("💳 Creating payment link for user:", handyproUserId, "amount:", amount);
+    console.log(
+      "💳 Creating payment link for user:",
+      handyproUserId,
+      "amount:",
+      amount
+    );
 
     const paymentLink = await StripeService.createPaymentLink({
       handyproUserId,
@@ -410,7 +415,78 @@ app.post("/api/stripe/create-payment-link", async (c) => {
     return c.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to create payment link",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to create payment link",
+      },
+      500
+    );
+  }
+});
+
+// Cancel payment link endpoint
+app.post("/api/stripe/cancel-payment-link", async (c) => {
+  try {
+    const { paymentLinkId, userId } = await c.req.json();
+
+    if (!paymentLinkId || !userId) {
+      return c.json(
+        {
+          error: "Missing required fields: paymentLinkId, userId",
+        },
+        400
+      );
+    }
+
+    console.log("🗑️ Cancelling payment link:", paymentLinkId, "for user:", userId);
+
+    const result = await StripeService.cancelPaymentLink(paymentLinkId, userId);
+
+    return c.json({
+      success: true,
+      paymentLink: result,
+    });
+  } catch (error) {
+    console.error("❌ Payment link cancellation error:", error);
+    return c.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to cancel payment link",
+      },
+      500
+    );
+  }
+});
+
+// Expire payment link endpoint
+app.post("/api/stripe/expire-payment-link", async (c) => {
+  try {
+    const { paymentLinkId, userId } = await c.req.json();
+
+    if (!paymentLinkId || !userId) {
+      return c.json(
+        {
+          error: "Missing required fields: paymentLinkId, userId",
+        },
+        400
+      );
+    }
+
+    console.log("⏰ Expiring payment link:", paymentLinkId, "for user:", userId);
+
+    const result = await StripeService.expirePaymentLink(paymentLinkId, userId);
+
+    return c.json({
+      success: true,
+      paymentLink: result,
+    });
+  } catch (error) {
+    console.error("❌ Payment link expiration error:", error);
+    return c.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to expire payment link",
       },
       500
     );

@@ -285,7 +285,9 @@ export class StripeService {
     dueDate?: string;
   }) {
     try {
-      console.log(`💳 Creating payment link for user ${handyproUserId}, amount: ${amount} cents`);
+      console.log(
+        `💳 Creating payment link for user ${handyproUserId}, amount: ${amount} cents`
+      );
 
       // Get the user's Stripe account ID
       const stripeAccountId = await this.getUserStripeAccount(handyproUserId);
@@ -297,7 +299,9 @@ export class StripeService {
       // Verify the account can accept payments
       const accountStatus = await this.getAccountStatus(stripeAccountId);
       if (!accountStatus.charges_enabled) {
-        throw new Error("Your Stripe account is not ready to accept payments. Please complete your onboarding.");
+        throw new Error(
+          "Your Stripe account is not ready to accept payments. Please complete your onboarding."
+        );
       }
 
       // Create a payment link using Stripe's Payment Links API
@@ -305,9 +309,9 @@ export class StripeService {
         line_items: [
           {
             price_data: {
-              currency: 'jmd',
+              currency: "jmd",
               product_data: {
-                name: description || 'Payment',
+                name: description || "Payment",
                 description: taskDetails || description,
               },
               unit_amount: amount, // Amount in cents
@@ -316,19 +320,20 @@ export class StripeService {
           },
         ],
         after_completion: {
-          type: 'hosted_confirmation',
+          type: "hosted_confirmation",
           hosted_confirmation: {
-            custom_message: 'Thank you for your payment! Your HandyPro will be in touch soon.',
+            custom_message:
+              "Thank you for your payment! Your HandyPro will be in touch soon.",
           },
         },
-        customer_creation: customerEmail ? 'always' : 'if_required',
+        customer_creation: customerEmail ? "always" : "if_required",
         ...(customerEmail && {
           customer_email: customerEmail,
         }),
         metadata: {
           handyproUserId,
-          customerName: customerName || '',
-          taskDetails: taskDetails || '',
+          customerName: customerName || "",
+          taskDetails: taskDetails || "",
         },
         ...(dueDate && {
           expires_at: Math.floor(new Date(dueDate).getTime() / 1000),
@@ -343,12 +348,70 @@ export class StripeService {
       return {
         id: paymentLink.id,
         hosted_invoice_url: paymentLink.url,
-        status: paymentLink.active ? 'open' : 'inactive',
+        status: paymentLink.active ? "open" : "inactive",
         amount_due: amount,
         payment_link: paymentLink.url,
       };
     } catch (error) {
       console.error("❌ Error creating payment link:", error);
+      throw error;
+    }
+  }
+
+  static async cancelPaymentLink(paymentLinkId: string, userId: string) {
+    try {
+      console.log(`🗑️ Cancelling payment link ${paymentLinkId} for user ${userId}`);
+
+      // Verify the user owns this payment link
+      const userStripeAccount = await this.getUserStripeAccount(userId);
+      if (!userStripeAccount) {
+        throw new Error("User does not have a Stripe account");
+      }
+
+      // Cancel the payment link
+      const cancelledPaymentLink = await stripe.paymentLinks.update(paymentLinkId, {
+        active: false,
+      });
+
+      console.log(`✅ Payment link ${paymentLinkId} cancelled successfully`);
+
+      return {
+        id: cancelledPaymentLink.id,
+        active: cancelledPaymentLink.active,
+        url: cancelledPaymentLink.url,
+        cancelled_at: new Date(),
+      };
+    } catch (error) {
+      console.error("❌ Error cancelling payment link:", error);
+      throw error;
+    }
+  }
+
+  static async expirePaymentLink(paymentLinkId: string, userId: string) {
+    try {
+      console.log(`⏰ Expiring payment link ${paymentLinkId} for user ${userId}`);
+
+      // Verify the user owns this payment link
+      const userStripeAccount = await this.getUserStripeAccount(userId);
+      if (!userStripeAccount) {
+        throw new Error("User does not have a Stripe account");
+      }
+
+      // Set expiration to current time (will expire immediately)
+      const expiredPaymentLink = await stripe.paymentLinks.update(paymentLinkId, {
+        expires_at: Math.floor(Date.now() / 1000), // Expire immediately
+      });
+
+      console.log(`✅ Payment link ${paymentLinkId} expired successfully`);
+
+      return {
+        id: expiredPaymentLink.id,
+        active: expiredPaymentLink.active,
+        url: expiredPaymentLink.url,
+        expires_at: expiredPaymentLink.expires_at,
+      };
+    } catch (error) {
+      console.error("❌ Error expiring payment link:", error);
       throw error;
     }
   }
