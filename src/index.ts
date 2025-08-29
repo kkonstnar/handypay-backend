@@ -769,19 +769,29 @@ app.post("/auth/google/token", async (c) => {
     } catch (parseError) {
       console.error("❌ Failed to parse request body as JSON:", parseError);
       console.error("Raw body that failed to parse:", rawBody);
-      return c.json({
-        error: "Invalid JSON in request body",
-        details: parseError instanceof Error ? parseError.message : "Parse error",
-        receivedBody: rawBody.substring(0, 100)
-      }, 400);
+      return c.json(
+        {
+          error: "Invalid JSON in request body",
+          details:
+            parseError instanceof Error ? parseError.message : "Parse error",
+          receivedBody: rawBody.substring(0, 100),
+        },
+        400
+      );
     }
 
-    const { code, provider, redirectUri } = parsedBody;
+    const { code, provider, redirectUri, codeVerifier } = parsedBody;
 
-    console.log(`✅ ${provider || 'unknown'} token exchange request parsed successfully`);
+    console.log(
+      `✅ ${provider || "unknown"} token exchange request parsed successfully`
+    );
     console.log("Redirect URI:", redirectUri);
-    console.log("Code received:", code ? code.substring(0, 20) + "..." : "null");
+    console.log(
+      "Code received:",
+      code ? code.substring(0, 20) + "..." : "null"
+    );
     console.log("Code length:", code?.length || 0);
+    console.log("Code verifier present:", !!codeVerifier);
     console.log("Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
     console.log("Client Secret available:", !!process.env.GOOGLE_CLIENT_SECRET);
 
@@ -815,13 +825,23 @@ app.post("/auth/google/token", async (c) => {
       redirectUri ||
       "https://handypay-backend.onrender.com/auth/google/callback";
 
+    // Use PKCE (code_verifier) if provided, otherwise use client_secret
     const tokenRequestBody = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
       code: code,
       grant_type: "authorization_code",
       redirect_uri: finalRedirectUri,
     });
+
+    if (codeVerifier) {
+      // PKCE flow: use code_verifier instead of client_secret
+      tokenRequestBody.append("code_verifier", codeVerifier);
+      console.log("🔐 Using PKCE flow with code_verifier");
+    } else {
+      // Regular OAuth flow: use client_secret
+      tokenRequestBody.append("client_secret", process.env.GOOGLE_CLIENT_SECRET!);
+      console.log("🔑 Using regular OAuth flow with client_secret");
+    }
 
     console.log("Token exchange request details:");
     console.log("- URL: https://oauth2.googleapis.com/token");
