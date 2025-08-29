@@ -105,6 +105,26 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
       stripeAccountId
     );
 
+    // Check the actual Stripe account status to verify onboarding completion
+    const accountStatus = await StripeService.getAccountStatus(stripeAccountId);
+    console.log("📊 Stripe account status:", {
+      charges_enabled: accountStatus.charges_enabled,
+      details_submitted: accountStatus.details_submitted,
+      payouts_enabled: accountStatus.payouts_enabled,
+    });
+
+    // Only mark onboarding as complete if charges are enabled
+    const onboardingCompleted = accountStatus.charges_enabled;
+
+    if (!onboardingCompleted) {
+      console.log("⚠️ Onboarding not yet complete - charges not enabled");
+      return c.json({
+        success: false,
+        message: "Onboarding not yet complete. Please complete all required information in Stripe.",
+        accountStatus,
+      });
+    }
+
     // Update user with onboarding completion
     const existingUser = await db
       .select({ id: users.id })
@@ -127,7 +147,9 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
 
     console.log(
       "✅ Onboarding completed and stored in database for user:",
-      userId
+      userId,
+      "- charges enabled:",
+      accountStatus.charges_enabled
     );
 
     return c.json({
@@ -135,6 +157,7 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
       message: "Onboarding completed successfully",
       userId,
       stripeAccountId,
+      accountStatus,
     });
   } catch (error) {
     console.error("❌ Error completing onboarding:", error);
@@ -206,8 +229,8 @@ app.post("/api/users/sync", async (c) => {
     } = userData;
 
     if (!id || !authProvider || !memberSince) {
-    return c.json(
-      {
+      return c.json(
+        {
           error: "Missing required fields: id, authProvider, memberSince",
         },
         400
@@ -497,7 +520,7 @@ app.post("/api/stripe/expire-payment-link", async (c) => {
       );
     }
 
-      console.log(
+    console.log(
       "⏰ Expiring payment link:",
       paymentLinkId,
       "for user:",
@@ -653,7 +676,7 @@ app.get("/api/transactions/:userId", async (c) => {
       success: true,
       transactions: formattedTransactions,
     });
-        } catch (error) {
+  } catch (error) {
     console.error("❌ Transactions error:", error);
     return c.json({ error: "Failed to get transactions" }, 500);
   }
@@ -717,17 +740,17 @@ app.post("/api/transactions/cancel", async (c) => {
     });
   } catch (error) {
     console.error("❌ Transaction cancellation error:", error);
-      return c.json(
-        {
+    return c.json(
+      {
         success: false,
         error:
           error instanceof Error
             ? error.message
             : "Failed to cancel transaction",
-        },
-        500
-      );
-    }
+      },
+      500
+    );
+  }
 });
 
 // Debug endpoint to test basic database write
@@ -773,10 +796,13 @@ app.post("/api/debug/test-update", async (c) => {
     });
   } catch (error) {
     console.error("❌ Debug test error:", error);
-    return c.json({
-      error: "Failed to test update",
-      details: error instanceof Error ? error.message : "Unknown error"
-    }, 500);
+    return c.json(
+      {
+        error: "Failed to test update",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      500
+    );
   }
 });
 
@@ -808,10 +834,13 @@ app.get("/api/debug/check-columns", async (c) => {
     });
   } catch (error) {
     console.error("❌ Debug check error:", error);
-    return c.json({
-      error: "Failed to check database",
-      details: error instanceof Error ? error.message : "Unknown error"
-    }, 500);
+    return c.json(
+      {
+        error: "Failed to check database",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      500
+    );
   }
 });
 
@@ -820,7 +849,9 @@ app.post("/api/debug/update-stripe-account", async (c) => {
   try {
     const { userId, stripeAccountId } = await c.req.json();
 
-    console.log(`🔧 Manually updating user ${userId} with Stripe account ${stripeAccountId}`);
+    console.log(
+      `🔧 Manually updating user ${userId} with Stripe account ${stripeAccountId}`
+    );
 
     const result = await db
       .update(users)
