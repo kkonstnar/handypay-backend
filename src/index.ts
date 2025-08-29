@@ -5,7 +5,7 @@ import { cors } from "hono/cors";
 import { StripeService } from "./stripe.js";
 import { db } from "./db.js";
 import { users, transactions } from "./schema.js";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 
 const app = new Hono();
 
@@ -775,6 +775,41 @@ app.post("/api/debug/test-update", async (c) => {
     console.error("❌ Debug test error:", error);
     return c.json({
       error: "Failed to test update",
+      details: error instanceof Error ? error.message : "Unknown error"
+    }, 500);
+  }
+});
+
+// Debug endpoint to check database columns
+app.get("/api/debug/check-columns", async (c) => {
+  try {
+    console.log("🔍 Checking database columns...");
+
+    // Check if users table has the required columns
+    const usersColumns = await db.execute(sql`
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_name = 'users'
+      AND column_name IN ('stripe_account_id', 'stripe_onboarding_completed')
+      ORDER BY column_name;
+    `);
+
+    // Check if transactions table exists
+    const transactionsTable = await db.execute(sql`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_name = 'transactions';
+    `);
+
+    return c.json({
+      success: true,
+      usersColumns: usersColumns.rows,
+      transactionsTable: transactionsTable.rows,
+    });
+  } catch (error) {
+    console.error("❌ Debug check error:", error);
+    return c.json({
+      error: "Failed to check database",
       details: error instanceof Error ? error.message : "Unknown error"
     }, 500);
   }
