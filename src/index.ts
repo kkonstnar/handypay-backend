@@ -40,6 +40,47 @@ app.get("/", (c) => {
   });
 });
 
+// Database test endpoint
+app.get("/test-db", async (c) => {
+  try {
+    console.log("🧪 Testing database connection...");
+
+    // Test basic user lookup
+    const testUserId = "test-user-123";
+    const result = await db
+      .select({ id: users.id, stripeAccountId: users.stripeAccountId })
+      .from(users)
+      .where(eq(users.id, testUserId))
+      .limit(1);
+
+    console.log("✅ Database test query successful:", {
+      found: result.length > 0,
+      result: result[0] || null,
+    });
+
+    return c.json({
+      status: "success",
+      database: "connected",
+      testQuery: {
+        userId: testUserId,
+        found: result.length > 0,
+        data: result[0] || null,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Database test failed:", error);
+    return c.json(
+      {
+        status: "error",
+        database: "failed",
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+      500
+    );
+  }
+});
+
 // Test Google OAuth configuration
 app.get("/test-google-config", async (c) => {
   try {
@@ -150,7 +191,7 @@ app.get("/test-auth", async (c) => {
 app.post("/api/stripe/create-account-link", async (c) => {
   try {
     const requestData = await c.req.json();
-    console.log("Stripe onboarding request:", requestData);
+    console.log("🎯 STRIPE ONBOARDING REQUEST RECEIVED:", requestData);
 
     const {
       userId,
@@ -193,6 +234,9 @@ app.post("/api/stripe/create-account-link", async (c) => {
     }
 
     // Use existing account if found, otherwise create new one
+    console.log(
+      `🚀 Calling StripeService.createAccountLink for user ${userId}...`
+    );
     const result = await StripeService.createAccountLink({
       userId,
       account_id: account_id || existingAccount,
@@ -201,6 +245,11 @@ app.post("/api/stripe/create-account-link", async (c) => {
       email,
       refresh_url,
       return_url,
+    });
+
+    console.log(`✅ Account link created successfully for user ${userId}:`, {
+      accountId: result.accountId,
+      url: result.url ? "present" : "missing",
     });
 
     return c.json(result);
@@ -243,30 +292,96 @@ app.get("/api/stripe/account-status/:accountId", async (c) => {
   }
 });
 
-// Stripe Connect endpoint for getting user's Stripe account
+// Stripe Connect endpoint for getting user's Stripe account (legacy)
 app.get("/api/stripe/user-account/:userId", async (c) => {
   try {
     const userId = c.req.param("userId");
+    console.log(`🔍 Looking up Stripe account for user: ${userId}`);
 
     if (!userId) {
+      console.error("❌ No userId provided in request");
       return c.json({ error: "User ID is required" }, 400);
     }
 
     const stripeAccountId = await StripeService.getUserStripeAccount(userId);
+    console.log(`📊 User account lookup result:`, {
+      userId,
+      stripeAccountId: stripeAccountId || "null",
+      found: !!stripeAccountId,
+    });
 
     if (!stripeAccountId) {
+      console.log(
+        `⚠️ No Stripe account found for user ${userId} - returning 404`
+      );
       return c.json({ error: "No Stripe account found for user" }, 404);
     }
 
+    console.log(
+      `✅ Found Stripe account ${stripeAccountId} for user ${userId}`
+    );
     return c.json({ stripeAccountId });
   } catch (error) {
-    console.error("Stripe user account lookup error:", error);
+    console.error("❌ Stripe user account lookup error:", error);
+    console.error("❌ Error details:", {
+      userId: c.req.param("userId"),
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return c.json(
       {
         error:
           error instanceof Error
             ? error.message
             : "Failed to retrieve user Stripe account",
+      },
+      500
+    );
+  }
+});
+
+// New Stripe Connect endpoint for getting account data by account ID
+app.post("/api/stripe/account", async (c) => {
+  try {
+    const { stripeAccountId } = await c.req.json();
+    console.log(`🔍 Getting Stripe account data for: ${stripeAccountId}`);
+
+    if (!stripeAccountId) {
+      console.error("❌ No stripeAccountId provided in request");
+      return c.json({ error: "Stripe Account ID is required" }, 400);
+    }
+
+    // Get account status from Stripe
+    const accountData = await StripeService.getAccountStatus(stripeAccountId);
+
+    console.log(`✅ Retrieved Stripe account data:`, {
+      id: accountData.id,
+      charges_enabled: accountData.charges_enabled,
+      payouts_enabled: accountData.payouts_enabled,
+      details_submitted: accountData.details_submitted,
+    });
+
+    return c.json({
+      stripeAccountId: accountData.id,
+      stripeOnboardingComplete: accountData.charges_enabled, // Use charges_enabled as completion indicator
+      kycStatus: accountData.details_submitted ? "completed" : "pending",
+      charges_enabled: accountData.charges_enabled,
+      payouts_enabled: accountData.payouts_enabled,
+      details_submitted: accountData.details_submitted,
+      requirements: accountData.requirements,
+    });
+  } catch (error) {
+    console.error("❌ Stripe account data lookup error:", error);
+    console.error("❌ Error details:", {
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return c.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to retrieve Stripe account data",
       },
       500
     );
@@ -839,7 +954,10 @@ app.post("/auth/google/token", async (c) => {
       console.log("🔐 Using PKCE flow with code_verifier");
     } else {
       // Regular OAuth flow: use client_secret
-      tokenRequestBody.append("client_secret", process.env.GOOGLE_CLIENT_SECRET!);
+      tokenRequestBody.append(
+        "client_secret",
+        process.env.GOOGLE_CLIENT_SECRET!
+      );
       console.log("🔑 Using regular OAuth flow with client_secret");
     }
 

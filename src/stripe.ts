@@ -72,7 +72,9 @@ export class StripeService {
         });
         accountId = account.id;
 
-        console.log(`✅ Created new Stripe account: ${accountId} for user ${userId}`);
+        console.log(
+          `✅ Created new Stripe account: ${accountId} for user ${userId}`
+        );
       } else {
         console.log("Using existing Stripe account:", accountId);
 
@@ -88,17 +90,34 @@ export class StripeService {
       }
 
       // Try to save the Stripe account ID to database (don't fail if user doesn't exist yet)
+      console.log(
+        `🔄 Attempting to save Stripe account ${accountId} for user ${userId} to database...`
+      );
+
       if (accountId) {
         try {
+          console.log(`🔍 Checking if user ${userId} exists in database...`);
+
           // First check if user exists
           const existingUser = await db
-            .select({ id: users.id })
+            .select({ id: users.id, stripeAccountId: users.stripeAccountId })
             .from(users)
             .where(eq(users.id, userId))
             .limit(1);
 
+          console.log(`📊 User existence check result:`, {
+            userId,
+            userExists: existingUser.length > 0,
+            currentStripeAccountId: existingUser[0]?.stripeAccountId || null,
+          });
+
           if (existingUser.length > 0) {
-            await db
+            // User exists, update their Stripe account ID
+            console.log(
+              `📝 Updating existing user ${userId} with Stripe account ${accountId}`
+            );
+
+            const updateResult = await db
               .update(users)
               .set({
                 stripeAccountId: accountId,
@@ -106,14 +125,73 @@ export class StripeService {
               })
               .where(eq(users.id, userId));
 
-            console.log(`✅ Saved Stripe account ID ${accountId} for existing user ${userId}`);
+            console.log(
+              `✅ Updated Stripe account ID ${accountId} for existing user ${userId}`,
+              `Update result:`,
+              updateResult
+            );
           } else {
-            console.log(`⚠️ User ${userId} not found in database, skipping DB update`);
+            // User doesn't exist, create a minimal user record
+            console.log(
+              `👤 User ${userId} doesn't exist, creating new record with Stripe account ${accountId}`
+            );
+
+            const insertResult = await db.insert(users).values({
+              id: userId,
+              email: email || null,
+              firstName: firstName || null,
+              lastName: lastName || null,
+              fullName: `${firstName || ""} ${lastName || ""}`.trim() || null,
+              authProvider: "unknown", // Will be updated when user authenticates
+              stripeAccountId: accountId,
+              stripeOnboardingCompleted: false, // Will be updated when onboarding completes
+              memberSince: new Date(),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+
+            console.log(
+              `✅ Created new user record and saved Stripe account ID ${accountId} for user ${userId}`,
+              `Insert result:`,
+              insertResult
+            );
+          }
+
+          // Verify the save worked
+          const verification = await db
+            .select({ stripeAccountId: users.stripeAccountId })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+
+          if (
+            verification.length > 0 &&
+            verification[0].stripeAccountId === accountId
+          ) {
+            console.log(
+              `✅ Database save verification successful: ${verification[0].stripeAccountId}`
+            );
+          } else {
+            console.error(
+              `❌ Database save verification failed! Expected: ${accountId}, Got: ${
+                verification[0]?.stripeAccountId || "null"
+              }`
+            );
           }
         } catch (err) {
-          console.error("Error saving stripeAccountId to DB:", err);
-          console.log("Continuing with account creation despite DB error...");
+          console.error("❌ Error saving stripeAccountId to DB:", err);
+          console.error("❌ Database error details:", {
+            error: err,
+            message: err instanceof Error ? err.message : "Unknown error",
+            userId,
+            accountId,
+          });
+          console.log(
+            "⚠️ Continuing with account creation despite DB error..."
+          );
         }
+      } else {
+        console.error("❌ No accountId provided to save to database!");
       }
 
       // Create account link for onboarding
@@ -158,15 +236,33 @@ export class StripeService {
 
   static async getUserStripeAccount(userId: string) {
     try {
+      console.log(`🔍 Querying database for user ${userId} Stripe account...`);
+
       const result = await db
-        .select({ stripeAccountId: users.stripeAccountId })
+        .select({
+          stripeAccountId: users.stripeAccountId,
+          id: users.id,
+          email: users.email,
+        })
         .from(users)
         .where(eq(users.id, userId))
         .limit(1);
 
+      console.log(`📊 Database query result for user ${userId}:`, {
+        found: result.length > 0,
+        userId: result[0]?.id || "null",
+        stripeAccountId: result[0]?.stripeAccountId || "null",
+        email: result[0]?.email || "null",
+      });
+
       return result.length > 0 ? result[0].stripeAccountId : null;
     } catch (error) {
-      console.error("Error retrieving user Stripe account:", error);
+      console.error("❌ Error retrieving user Stripe account:", error);
+      console.error("❌ Database query error details:", {
+        userId,
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       return null;
     }
   }
