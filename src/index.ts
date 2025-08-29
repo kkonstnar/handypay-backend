@@ -25,7 +25,9 @@ app.get("/", (c) => {
   return c.json({
     message: "HandyPay Auth Server is running!",
     timestamp: new Date().toISOString(),
-    version: "1.0.0",
+    version: "1.0.1",
+    authType: "Apple-only",
+    status: "clean",
   });
 });
 
