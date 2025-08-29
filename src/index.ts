@@ -730,6 +730,56 @@ app.post("/api/transactions/cancel", async (c) => {
     }
 });
 
+// Debug endpoint to test basic database write
+app.post("/api/debug/test-update", async (c) => {
+  try {
+    const { userId } = await c.req.json();
+
+    console.log(`🔧 Testing database update for user ${userId}`);
+
+    // First, let's see what the current user data looks like
+    const currentUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    console.log(`📊 Current user data:`, currentUser[0]);
+
+    const result = await db
+      .update(users)
+      .set({
+        email: "updated-" + Date.now() + "@test.com",
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    console.log(`✅ Basic update result:`, result);
+
+    // Now check what it looks like after the update
+    const updatedUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    console.log(`📊 Updated user data:`, updatedUser[0]);
+
+    return c.json({
+      success: true,
+      message: "Basic update test completed",
+      before: currentUser[0],
+      after: updatedUser[0],
+    });
+  } catch (error) {
+    console.error("❌ Debug test error:", error);
+    return c.json({
+      error: "Failed to test update",
+      details: error instanceof Error ? error.message : "Unknown error"
+    }, 500);
+  }
+});
+
 // Debug endpoint to manually update user Stripe account
 app.post("/api/debug/update-stripe-account", async (c) => {
   try {
