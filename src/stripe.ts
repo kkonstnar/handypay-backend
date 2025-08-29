@@ -327,17 +327,13 @@ export class StripeService {
           },
         },
         customer_creation: customerEmail ? "always" : "if_required",
-        ...(customerEmail && {
-          customer_email: customerEmail,
-        }),
         metadata: {
           handyproUserId,
           customerName: customerName || "",
+          customerEmail: customerEmail || "",
           taskDetails: taskDetails || "",
         },
-        ...(dueDate && {
-          expires_at: Math.floor(new Date(dueDate).getTime() / 1000),
-        }),
+        // Note: expires_at is not supported in payment links, expiration is handled differently
         transfer_data: {
           destination: stripeAccountId,
         },
