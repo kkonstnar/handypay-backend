@@ -92,10 +92,18 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
     const { userId, stripeAccountId } = await c.req.json();
 
     if (!userId || !stripeAccountId) {
-      return c.json({ error: "Missing required fields: userId, stripeAccountId" }, 400);
+      return c.json(
+        { error: "Missing required fields: userId, stripeAccountId" },
+        400
+      );
     }
 
-    console.log("✅ Completing Stripe onboarding for user:", userId, "account:", stripeAccountId);
+    console.log(
+      "✅ Completing Stripe onboarding for user:",
+      userId,
+      "account:",
+      stripeAccountId
+    );
 
     // Update user with onboarding completion
     const existingUser = await db
@@ -117,13 +125,16 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
       })
       .where(eq(users.id, userId));
 
-    console.log("✅ Onboarding completed and stored in database for user:", userId);
+    console.log(
+      "✅ Onboarding completed and stored in database for user:",
+      userId
+    );
 
     return c.json({
       success: true,
       message: "Onboarding completed successfully",
       userId,
-      stripeAccountId
+      stripeAccountId,
     });
   } catch (error) {
     console.error("❌ Error completing onboarding:", error);
@@ -134,7 +145,7 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
 // Get user account endpoint
 app.get("/api/stripe/user-account/:userId", async (c) => {
   try {
-    const userId = c.req.param('userId');
+    const userId = c.req.param("userId");
 
     if (!userId) {
       return c.json({ error: "Missing userId parameter" }, 400);
@@ -147,7 +158,7 @@ app.get("/api/stripe/user-account/:userId", async (c) => {
       .select({
         id: users.id,
         stripeAccountId: users.stripeAccountId,
-        stripeOnboardingCompleted: users.stripeOnboardingCompleted
+        stripeOnboardingCompleted: users.stripeOnboardingCompleted,
       })
       .from(users)
       .where(eq(users.id, userId))
@@ -162,7 +173,7 @@ app.get("/api/stripe/user-account/:userId", async (c) => {
     return c.json({
       user_id: account.id,
       stripe_account_id: account.stripeAccountId,
-      stripe_onboarding_completed: account.stripeOnboardingCompleted
+      stripe_onboarding_completed: account.stripeOnboardingCompleted,
     });
   } catch (error) {
     console.error("❌ Error getting user account:", error);
@@ -357,6 +368,46 @@ app.post("/api/stripe/create-account-link", async (c) => {
 });
 
 // Stripe account status endpoint
+// GET endpoint for account status (frontend compatibility)
+app.get("/api/stripe/account-status/:accountId", async (c) => {
+  try {
+    const stripeAccountId = c.req.param("accountId");
+
+    if (!stripeAccountId) {
+      return c.json(
+        {
+          error: "Missing required parameter: accountId",
+        },
+        400
+      );
+    }
+
+    console.log("📊 Checking Stripe account status for:", stripeAccountId);
+
+    const accountStatus = await StripeService.getAccountStatus(stripeAccountId);
+
+    return c.json({
+      success: true,
+      stripeOnboardingComplete: accountStatus.charges_enabled,
+      details_submitted: accountStatus.details_submitted,
+      charges_enabled: accountStatus.charges_enabled,
+      payouts_enabled: accountStatus.payouts_enabled,
+      ...accountStatus,
+    });
+  } catch (error) {
+    console.error("❌ Stripe account status error:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to get Stripe account status",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      500
+    );
+  }
+});
+
+// POST endpoint for account status (existing)
 app.post("/api/stripe/account-status", async (c) => {
   try {
     const { stripeAccountId } = await c.req.json();
