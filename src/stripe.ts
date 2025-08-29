@@ -353,7 +353,8 @@ export class StripeService {
           type: "payment_link",
           amount: amount,
           currency: "JMD",
-          description: description || `Payment for $${(amount / 100).toFixed(2)}`,
+          description:
+            description || `Payment for $${(amount / 100).toFixed(2)}`,
           status: "pending",
           date: new Date(),
           stripePaymentLinkId: paymentLink.id,
@@ -362,14 +363,16 @@ export class StripeService {
           paymentMethod: "payment_link",
           metadata: JSON.stringify({
             handyproUserId,
-            customerName: customerName || '',
-            taskDetails: taskDetails || '',
+            customerName: customerName || "",
+            taskDetails: taskDetails || "",
             dueDate: dueDate || null,
           }),
           ...(dueDate && { expiresAt: new Date(dueDate) }),
         });
 
-        console.log(`💾 Transaction stored in database: plink_${paymentLink.id}`);
+        console.log(
+          `💾 Transaction stored in database: plink_${paymentLink.id}`
+        );
       } catch (dbError) {
         console.error("❌ Failed to store transaction in database:", dbError);
         // Don't fail the payment link creation if DB storage fails
@@ -390,7 +393,9 @@ export class StripeService {
 
   static async cancelPaymentLink(paymentLinkId: string, userId: string) {
     try {
-      console.log(`🗑️ Cancelling payment link ${paymentLinkId} for user ${userId}`);
+      console.log(
+        `🗑️ Cancelling payment link ${paymentLinkId} for user ${userId}`
+      );
 
       // Verify the user owns this payment link
       const userStripeAccount = await this.getUserStripeAccount(userId);
@@ -399,9 +404,12 @@ export class StripeService {
       }
 
       // Cancel the payment link
-      const cancelledPaymentLink = await stripe.paymentLinks.update(paymentLinkId, {
-        active: false,
-      });
+      const cancelledPaymentLink = await stripe.paymentLinks.update(
+        paymentLinkId,
+        {
+          active: false,
+        }
+      );
 
       console.log(`✅ Payment link ${paymentLinkId} cancelled successfully`);
 
@@ -410,15 +418,15 @@ export class StripeService {
         await db
           .update(transactions)
           .set({
-            status: 'cancelled',
+            status: "cancelled",
             updatedAt: new Date(),
-            notes: 'Payment link cancelled by user',
+            notes: "Payment link cancelled by user",
           })
           .where(eq(transactions.stripePaymentLinkId, paymentLinkId));
 
         console.log(`💾 Updated transaction status to cancelled in database`);
       } catch (dbError) {
-        console.error('❌ Failed to update transaction in database:', dbError);
+        console.error("❌ Failed to update transaction in database:", dbError);
       }
 
       return {
@@ -435,7 +443,9 @@ export class StripeService {
 
   static async expirePaymentLink(paymentLinkId: string, userId: string) {
     try {
-      console.log(`⏰ Expiring payment link ${paymentLinkId} for user ${userId}`);
+      console.log(
+        `⏰ Expiring payment link ${paymentLinkId} for user ${userId}`
+      );
 
       // Verify the user owns this payment link
       const userStripeAccount = await this.getUserStripeAccount(userId);
@@ -444,9 +454,12 @@ export class StripeService {
       }
 
       // Set expiration to current time (will expire immediately)
-      const expiredPaymentLink = await stripe.paymentLinks.update(paymentLinkId, {
-        expires_at: Math.floor(Date.now() / 1000), // Expire immediately
-      });
+      const expiredPaymentLink = await stripe.paymentLinks.update(
+        paymentLinkId,
+        {
+          active: false, // Deactivate instead of setting expiration
+        }
+      );
 
       console.log(`✅ Payment link ${paymentLinkId} expired successfully`);
 
@@ -454,7 +467,7 @@ export class StripeService {
         id: expiredPaymentLink.id,
         active: expiredPaymentLink.active,
         url: expiredPaymentLink.url,
-        expires_at: expiredPaymentLink.expires_at,
+        expires_at: Math.floor(Date.now() / 1000),
       };
     } catch (error) {
       console.error("❌ Error expiring payment link:", error);
@@ -473,23 +486,23 @@ export class StripeService {
       console.log(`🎣 Webhook received: ${event.type}`);
 
       switch (event.type) {
-        case 'payment_intent.succeeded':
+        case "payment_intent.succeeded":
           await this.handlePaymentIntentSucceeded(event.data.object);
           break;
 
-        case 'payment_intent.payment_failed':
+        case "payment_intent.payment_failed":
           await this.handlePaymentIntentFailed(event.data.object);
           break;
 
-        case 'checkout.session.completed':
+        case "checkout.session.completed":
           await this.handleCheckoutSessionCompleted(event.data.object);
           break;
 
-        case 'invoice.payment_succeeded':
+        case "invoice.payment_succeeded":
           await this.handleInvoicePaymentSucceeded(event.data.object);
           break;
 
-        case 'invoice.payment_failed':
+        case "invoice.payment_failed":
           await this.handleInvoicePaymentFailed(event.data.object);
           break;
 
@@ -499,13 +512,13 @@ export class StripeService {
 
       return { received: true };
     } catch (error) {
-      console.error('❌ Webhook error:', error);
+      console.error("❌ Webhook error:", error);
       throw error;
     }
   }
 
   private static async handlePaymentIntentSucceeded(paymentIntent: any) {
-    console.log('💰 Payment intent succeeded:', paymentIntent.id);
+    console.log("💰 Payment intent succeeded:", paymentIntent.id);
 
     try {
       // Find the transaction by payment intent ID
@@ -520,68 +533,76 @@ export class StripeService {
         await db
           .update(transactions)
           .set({
-            status: 'completed',
+            status: "completed",
             updatedAt: new Date(),
           })
           .where(eq(transactions.stripePaymentIntentId, paymentIntent.id));
 
-        console.log(`✅ Updated transaction status to completed: ${existingTransaction[0].id}`);
+        console.log(
+          `✅ Updated transaction status to completed: ${existingTransaction[0].id}`
+        );
       } else {
         // Create new transaction if it doesn't exist
         const transactionId = `pi_${paymentIntent.id}`;
-        const userId = paymentIntent.metadata?.handyproUserId || 'unknown';
+        const userId = paymentIntent.metadata?.handyproUserId || "unknown";
 
         await db.insert(transactions).values({
           id: transactionId,
           userId: userId,
-          type: 'received',
+          type: "received",
           amount: paymentIntent.amount,
           currency: paymentIntent.currency.toUpperCase(),
-          description: paymentIntent.description || 'Payment received',
-          status: 'completed',
+          description: paymentIntent.description || "Payment received",
+          status: "completed",
           date: new Date(),
           stripePaymentIntentId: paymentIntent.id,
           customerName: paymentIntent.metadata?.customerName,
           customerEmail: paymentIntent.metadata?.customerEmail,
-          paymentMethod: 'card',
-          cardLast4: paymentIntent.charges?.data?.[0]?.payment_method_details?.card?.last4,
-          cardBrand: paymentIntent.charges?.data?.[0]?.payment_method_details?.card?.brand,
+          paymentMethod: "card",
+          cardLast4:
+            paymentIntent.charges?.data?.[0]?.payment_method_details?.card
+              ?.last4,
+          cardBrand:
+            paymentIntent.charges?.data?.[0]?.payment_method_details?.card
+              ?.brand,
           metadata: JSON.stringify(paymentIntent.metadata || {}),
         });
 
         console.log(`💾 Created new transaction: ${transactionId}`);
       }
 
-      console.log('Payment successful:', {
+      console.log("Payment successful:", {
         id: paymentIntent.id,
         amount: paymentIntent.amount,
         currency: paymentIntent.currency,
         metadata: paymentIntent.metadata,
       });
     } catch (error) {
-      console.error('❌ Error processing payment intent success:', error);
+      console.error("❌ Error processing payment intent success:", error);
     }
   }
 
   private static async handlePaymentIntentFailed(paymentIntent: any) {
-    console.log('❌ Payment intent failed:', paymentIntent.id);
+    console.log("❌ Payment intent failed:", paymentIntent.id);
 
     try {
       // Update transaction status to failed
       const result = await db
         .update(transactions)
         .set({
-          status: 'failed',
+          status: "failed",
           updatedAt: new Date(),
-          notes: `Payment failed: ${paymentIntent.last_payment_error?.message || 'Unknown error'}`,
+          notes: `Payment failed: ${
+            paymentIntent.last_payment_error?.message || "Unknown error"
+          }`,
         })
         .where(eq(transactions.stripePaymentIntentId, paymentIntent.id));
 
-      if (result.rowCount && result.rowCount > 0) {
-        console.log(`✅ Updated transaction status to failed: ${paymentIntent.id}`);
-      }
+      console.log(
+        `✅ Updated transaction status to failed: ${paymentIntent.id}`
+      );
 
-      console.log('Payment failed:', {
+      console.log("Payment failed:", {
         id: paymentIntent.id,
         amount: paymentIntent.amount,
         currency: paymentIntent.currency,
@@ -589,14 +610,14 @@ export class StripeService {
         metadata: paymentIntent.metadata,
       });
     } catch (error) {
-      console.error('❌ Error processing payment intent failure:', error);
+      console.error("❌ Error processing payment intent failure:", error);
     }
   }
 
   private static async handleCheckoutSessionCompleted(session: any) {
-    console.log('✅ Checkout session completed:', session.id);
+    console.log("✅ Checkout session completed:", session.id);
 
-    console.log('Checkout completed:', {
+    console.log("Checkout completed:", {
       id: session.id,
       payment_status: session.payment_status,
       amount_total: session.amount_total,
@@ -606,9 +627,9 @@ export class StripeService {
   }
 
   private static async handleInvoicePaymentSucceeded(invoice: any) {
-    console.log('💳 Invoice payment succeeded:', invoice.id);
+    console.log("💳 Invoice payment succeeded:", invoice.id);
 
-    console.log('Invoice payment successful:', {
+    console.log("Invoice payment successful:", {
       id: invoice.id,
       amount_paid: invoice.amount_paid,
       currency: invoice.currency,
@@ -618,9 +639,9 @@ export class StripeService {
   }
 
   private static async handleInvoicePaymentFailed(invoice: any) {
-    console.log('❌ Invoice payment failed:', invoice.id);
+    console.log("❌ Invoice payment failed:", invoice.id);
 
-    console.log('Invoice payment failed:', {
+    console.log("Invoice payment failed:", {
       id: invoice.id,
       amount_due: invoice.amount_due,
       currency: invoice.currency,

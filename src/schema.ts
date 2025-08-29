@@ -1,4 +1,11 @@
-import { pgTable, text, timestamp, boolean, integer, decimal } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  timestamp,
+  boolean,
+  integer,
+  decimal,
+} from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -20,7 +27,9 @@ export const users = pgTable("users", {
 
 export const transactions = pgTable("transactions", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull().references(() => users.id),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
 
   // Transaction details
   type: text("type").notNull(), // 'payment' | 'received' | 'withdrawal' | 'card_payment' | 'refund' | 'qr_payment' | 'payment_link'

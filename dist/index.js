@@ -2,11 +2,14 @@ import "dotenv/config";
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { cors } from "hono/cors";
-import { auth } from "./auth.js";
 import { StripeService } from "./stripe.js";
 import { db } from "./db.js";
-import { users } from "./schema.js";
-import { eq } from "drizzle-orm";
+import { users, transactions } from "./schema.js";
+import { eq, desc, sql } from "drizzle-orm";
+import Stripe from "stripe";
+const stripe = new Stripe(process.env.STRIPE_TEST_SECRET_KEY, {
+    apiVersion: "2025-08-27.basil",
+});
 const app = new Hono();
 // CORS middleware first
 app.use("*", cors({
@@ -19,680 +22,687 @@ app.use("*", cors({
 app.get("/", (c) => {
     return c.json({
         message: "HandyPay Auth Server is running!",
-        auth: !!auth,
-        env: {
-            hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
-            hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
-            hasBetterAuthUrl: !!process.env.BETTER_AUTH_URL,
-            hasBetterAuthSecret: !!process.env.BETTER_AUTH_SECRET,
-            hasDatabaseUrl: !!process.env.DATABASE_URL,
-        },
+        timestamp: new Date().toISOString(),
+        version: "1.0.1",
+        authType: "Apple-only",
+        status: "clean",
     });
 });
-// Test route to check Better Auth initialization
-app.get("/test-auth", async (c) => {
+// Database test endpoint
+// Simple database test
+app.get("/test-db", async (c) => {
     try {
-        console.log("Testing Better Auth initialization...");
-        // Try to call a simple Better Auth API method
-        const result = await auth.api.listSessions({
-            headers: c.req.raw.headers,
-        });
-        return c.json({ message: "Better Auth is working", result });
+        await db.execute("SELECT 1");
+        return c.json({ success: true, message: "Database connected" });
     }
     catch (error) {
-        console.error("Better Auth test error:", error);
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        const errorStack = error instanceof Error ? error.stack : undefined;
-        return c.json({ error: errorMessage, stack: errorStack }, 500);
+        return c.json({ success: false, error: "Database not connected" }, 500);
+    }
+});
+// Stripe onboarding return endpoint
+app.get("/stripe/return", async (c) => {
+    const accountId = c.req.query("account");
+    const error = c.req.query("error");
+    console.log("🎉 Stripe onboarding return:", { accountId, error });
+    if (error) {
+        console.error("❌ Stripe onboarding error:", error);
+        // Redirect back to app with error
+        return c.redirect(`handypay://stripe/error?error=${encodeURIComponent(error)}`);
+    }
+    if (accountId) {
+        console.log("✅ Stripe account completed:", accountId);
+        // Redirect back to app with success
+        return c.redirect(`handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`);
+    }
+    // Default redirect
+    return c.redirect("handypay://stripe/complete");
+});
+// Stripe onboarding refresh endpoint
+app.get("/stripe/refresh", async (c) => {
+    const accountId = c.req.query("account");
+    console.log("🔄 Stripe onboarding refresh:", { accountId });
+    if (accountId) {
+        // Redirect back to app to restart onboarding
+        return c.redirect(`handypay://stripe/refresh?accountId=${encodeURIComponent(accountId)}`);
+    }
+    // Default refresh redirect
+    return c.redirect("handypay://stripe/refresh");
+});
+// Complete Stripe onboarding endpoint
+app.post("/api/stripe/complete-onboarding", async (c) => {
+    try {
+        const { userId, stripeAccountId } = await c.req.json();
+        if (!userId || !stripeAccountId) {
+            return c.json({ error: "Missing required fields: userId, stripeAccountId" }, 400);
+        }
+        console.log("✅ Completing Stripe onboarding for user:", userId, "account:", stripeAccountId);
+        // Check the actual Stripe account status to verify onboarding completion
+        const accountStatus = await StripeService.getAccountStatus(stripeAccountId);
+        console.log("📊 Stripe account status:", {
+            charges_enabled: accountStatus.charges_enabled,
+            details_submitted: accountStatus.details_submitted,
+            payouts_enabled: accountStatus.payouts_enabled,
+        });
+        // Only mark onboarding as complete if charges are enabled
+        const onboardingCompleted = accountStatus.charges_enabled;
+        if (!onboardingCompleted) {
+            console.log("⚠️ Onboarding not yet complete - charges not enabled");
+            return c.json({
+                success: false,
+                message: "Onboarding not yet complete. Please complete all required information in Stripe.",
+                accountStatus,
+            });
+        }
+        // Update user with onboarding completion
+        const existingUser = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+        if (existingUser.length === 0) {
+            return c.json({ error: "User not found" }, 404);
+        }
+        await db
+            .update(users)
+            .set({
+            stripeAccountId: stripeAccountId,
+            stripeOnboardingCompleted: true,
+            updatedAt: new Date(),
+        })
+            .where(eq(users.id, userId));
+        console.log("✅ Onboarding completed and stored in database for user:", userId, "- charges enabled:", accountStatus.charges_enabled);
+        return c.json({
+            success: true,
+            message: "Onboarding completed successfully",
+            userId,
+            stripeAccountId,
+            accountStatus,
+        });
+    }
+    catch (error) {
+        console.error("❌ Error completing onboarding:", error);
+        return c.json({ error: "Failed to complete onboarding" }, 500);
+    }
+});
+// Get user account endpoint
+app.get("/api/stripe/user-account/:userId", async (c) => {
+    try {
+        const userId = c.req.param("userId");
+        if (!userId) {
+            return c.json({ error: "Missing userId parameter" }, 400);
+        }
+        console.log("🔍 Getting user account for:", userId);
+        // Get user account data from database
+        const userAccount = await db
+            .select({
+            id: users.id,
+            stripeAccountId: users.stripeAccountId,
+            stripeOnboardingCompleted: users.stripeOnboardingCompleted,
+        })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+        if (userAccount.length === 0) {
+            return c.json({ error: "User not found" }, 404);
+        }
+        const account = userAccount[0];
+        return c.json({
+            user_id: account.id,
+            stripe_account_id: account.stripeAccountId,
+            stripe_onboarding_completed: account.stripeOnboardingCompleted,
+        });
+    }
+    catch (error) {
+        console.error("❌ Error getting user account:", error);
+        return c.json({ error: "Failed to get user account" }, 500);
+    }
+});
+// User synchronization endpoint for syncing authenticated users to backend DB
+app.post("/api/users/sync", async (c) => {
+    try {
+        const userData = await c.req.json();
+        console.log("🔄 User sync request:", userData);
+        console.log("🔄 Stripe data:", {
+            stripeAccountId: userData.stripeAccountId,
+            stripeOnboardingCompleted: userData.stripeOnboardingCompleted,
+        });
+        const { id, email, fullName, firstName, lastName, authProvider, memberSince, appleUserId, googleUserId, stripeAccountId, stripeOnboardingCompleted, } = userData;
+        if (!id || !authProvider || !memberSince) {
+            return c.json({
+                error: "Missing required fields: id, authProvider, memberSince",
+            }, 400);
+        }
+        // Check if user already exists
+        const existingUser = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.id, id))
+            .limit(1);
+        if (existingUser.length > 0) {
+            // Update existing user
+            await db
+                .update(users)
+                .set({
+                email: email || null,
+                fullName: fullName || null,
+                firstName: firstName || null,
+                lastName: lastName || null,
+                authProvider,
+                appleUserId: appleUserId || null,
+                googleUserId: googleUserId || null,
+                stripeAccountId: stripeAccountId || null,
+                stripeOnboardingCompleted: stripeOnboardingCompleted || false,
+                updatedAt: new Date(),
+            })
+                .where(eq(users.id, id));
+            console.log(`✅ Updated existing user in backend: ${id}`);
+            console.log(`✅ Stripe data saved:`, {
+                stripeAccountId: stripeAccountId,
+                stripeOnboardingCompleted: stripeOnboardingCompleted,
+            });
+        }
+        else {
+            // Create new user
+            await db.insert(users).values({
+                id,
+                email: email || null,
+                fullName: fullName || null,
+                firstName: firstName || null,
+                lastName: lastName || null,
+                authProvider,
+                appleUserId: appleUserId || null,
+                googleUserId: googleUserId || null,
+                stripeAccountId: stripeAccountId || null,
+                stripeOnboardingCompleted: stripeOnboardingCompleted || false,
+                memberSince: new Date(memberSince),
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            });
+            console.log(`✅ Created new user in backend: ${id}`);
+            console.log(`✅ Stripe data saved:`, {
+                stripeAccountId: stripeAccountId,
+                stripeOnboardingCompleted: stripeOnboardingCompleted,
+            });
+        }
+        return c.json({
+            success: true,
+            message: `User ${existingUser.length > 0 ? "updated" : "created"} successfully`,
+            userId: id,
+        });
+    }
+    catch (error) {
+        console.error("❌ User sync error:", error);
+        return c.json({
+            success: false,
+            error: "User sync failed",
+            details: error instanceof Error ? error.message : "Unknown error",
+        }, 500);
     }
 });
 // Stripe Connect endpoint for creating account links
 app.post("/api/stripe/create-account-link", async (c) => {
     try {
         const requestData = await c.req.json();
-        console.log("Stripe onboarding request:", requestData);
+        console.log("🎯 STRIPE ONBOARDING REQUEST RECEIVED:", requestData);
         const { userId, account_id, refresh_url, return_url, firstName, lastName, email, } = requestData;
-        if (!userId ||
-            !refresh_url ||
-            !return_url ||
-            !firstName ||
-            !lastName ||
-            !email) {
+        if (!userId || !refresh_url || !return_url) {
             return c.json({
-                error: "Missing required fields: userId, refresh_url, return_url, firstName, lastName, email",
+                error: "Missing required fields: userId, refresh_url, return_url",
             }, 400);
         }
-        // Fast response - check if account already exists
-        let existingAccount = null;
-        if (!account_id) {
-            try {
-                const existing = await StripeService.getUserStripeAccount(userId);
-                if (existing) {
-                    existingAccount = existing;
-                }
-            }
-            catch (error) {
-                console.log("No existing account found, creating new one");
-            }
+        // Check if user exists
+        const existingUser = await db
+            .select()
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+        if (existingUser.length === 0) {
+            return c.json({
+                error: `User ${userId} not found. Please ensure user is authenticated first.`,
+            }, 404);
         }
-        // Use existing account if found, otherwise create new one
+        const user = existingUser[0];
+        console.log("✅ Found user:", user.id);
+        // Create Stripe account and account link
         const result = await StripeService.createAccountLink({
             userId,
-            account_id: account_id || existingAccount,
-            firstName,
-            lastName,
-            email,
+            account_id: user.stripeAccountId || undefined,
             refresh_url,
             return_url,
+            firstName: user.firstName || "",
+            lastName: user.lastName || "",
+            email: user.email || "",
         });
-        return c.json(result);
-    }
-    catch (error) {
-        console.error("Stripe account link creation error:", error);
-        return c.json({
-            error: error instanceof Error
-                ? error.message
-                : "Failed to create Stripe account link",
-        }, 500);
-    }
-});
-// Stripe Connect endpoint for checking account status
-app.get("/api/stripe/account-status/:accountId", async (c) => {
-    try {
-        const accountId = c.req.param("accountId");
-        if (!accountId) {
-            return c.json({ error: "Account ID is required" }, 400);
+        console.log("✅ Stripe account link created:", result);
+        // Update user with Stripe account ID if it's a new account
+        if (result.accountId &&
+            (!user.stripeAccountId || user.stripeAccountId !== result.accountId)) {
+            await db
+                .update(users)
+                .set({
+                stripeAccountId: result.accountId,
+                updatedAt: new Date(),
+            })
+                .where(eq(users.id, userId));
+            console.log(`✅ Updated user ${userId} with Stripe account ID: ${result.accountId}`);
         }
-        const status = await StripeService.getAccountStatus(accountId);
-        return c.json(status);
+        return c.json({
+            success: true,
+            account_id: result.accountId,
+            url: result.url,
+            message: "Stripe account link created successfully",
+        });
     }
     catch (error) {
-        console.error("Stripe account status error:", error);
+        console.error("❌ Stripe account creation error:", error);
         return c.json({
-            error: error instanceof Error
-                ? error.message
-                : "Failed to retrieve account status",
+            success: false,
+            error: "Stripe account creation failed",
+            details: error instanceof Error ? error.message : "Unknown error",
         }, 500);
     }
 });
-// Stripe Connect endpoint for getting user's Stripe account
-app.get("/api/stripe/user-account/:userId", async (c) => {
+// Create payment link endpoint
+app.post("/api/stripe/create-payment-link", async (c) => {
+    try {
+        const { handyproUserId, customerName, customerEmail, description, amount, taskDetails, dueDate, } = await c.req.json();
+        if (!handyproUserId || !amount) {
+            return c.json({
+                error: "Missing required fields: handyproUserId, amount",
+            }, 400);
+        }
+        console.log("💳 Creating payment link for user:", handyproUserId, "amount:", amount);
+        const paymentLink = await StripeService.createPaymentLink({
+            handyproUserId,
+            customerName,
+            customerEmail,
+            description,
+            amount,
+            taskDetails,
+            dueDate,
+        });
+        return c.json({
+            success: true,
+            invoice: paymentLink,
+        });
+    }
+    catch (error) {
+        console.error("❌ Payment link creation error:", error);
+        return c.json({
+            success: false,
+            error: error instanceof Error
+                ? error.message
+                : "Failed to create payment link",
+        }, 500);
+    }
+});
+// Cancel payment link endpoint
+app.post("/api/stripe/cancel-payment-link", async (c) => {
+    try {
+        const { paymentLinkId, userId } = await c.req.json();
+        if (!paymentLinkId || !userId) {
+            return c.json({
+                error: "Missing required fields: paymentLinkId, userId",
+            }, 400);
+        }
+        console.log("🗑️ Cancelling payment link:", paymentLinkId, "for user:", userId);
+        const result = await StripeService.cancelPaymentLink(paymentLinkId, userId);
+        return c.json({
+            success: true,
+            paymentLink: result,
+        });
+    }
+    catch (error) {
+        console.error("❌ Payment link cancellation error:", error);
+        return c.json({
+            success: false,
+            error: error instanceof Error
+                ? error.message
+                : "Failed to cancel payment link",
+        }, 500);
+    }
+});
+// Expire payment link endpoint
+app.post("/api/stripe/expire-payment-link", async (c) => {
+    try {
+        const { paymentLinkId, userId } = await c.req.json();
+        if (!paymentLinkId || !userId) {
+            return c.json({
+                error: "Missing required fields: paymentLinkId, userId",
+            }, 400);
+        }
+        console.log("⏰ Expiring payment link:", paymentLinkId, "for user:", userId);
+        const result = await StripeService.expirePaymentLink(paymentLinkId, userId);
+        return c.json({
+            success: true,
+            paymentLink: result,
+        });
+    }
+    catch (error) {
+        console.error("❌ Payment link expiration error:", error);
+        return c.json({
+            success: false,
+            error: error instanceof Error
+                ? error.message
+                : "Failed to expire payment link",
+        }, 500);
+    }
+});
+// Stripe webhook endpoint
+app.post("/api/stripe/webhook", async (c) => {
+    try {
+        const rawBody = await c.req.text();
+        const signature = c.req.header("stripe-signature");
+        if (!signature) {
+            console.error("❌ No Stripe signature provided");
+            return c.json({ error: "No signature" }, 400);
+        }
+        console.log("🎣 Processing Stripe webhook...");
+        const result = await StripeService.handleWebhook(rawBody, signature);
+        return c.json(result, 200);
+    }
+    catch (error) {
+        console.error("❌ Webhook processing error:", error);
+        return c.json({
+            error: error instanceof Error ? error.message : "Webhook processing failed",
+        }, 400);
+    }
+});
+// Get payment status endpoint
+app.get("/api/stripe/payment-status/:paymentIntentId", async (c) => {
+    try {
+        const paymentIntentId = c.req.param("paymentIntentId");
+        if (!paymentIntentId) {
+            return c.json({ error: "Missing paymentIntentId parameter" }, 400);
+        }
+        console.log("📊 Getting payment status for:", paymentIntentId);
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+        return c.json({
+            id: paymentIntent.id,
+            status: paymentIntent.status,
+            amount: paymentIntent.amount,
+            currency: paymentIntent.currency,
+            metadata: paymentIntent.metadata,
+        });
+    }
+    catch (error) {
+        console.error("❌ Payment status error:", error);
+        return c.json({ error: "Failed to get payment status" }, 500);
+    }
+});
+// Refresh transaction status endpoint
+app.post("/api/stripe/refresh-transaction", async (c) => {
+    try {
+        const { transactionId, userId } = await c.req.json();
+        if (!transactionId || !userId) {
+            return c.json({ error: "Missing required fields: transactionId, userId" }, 400);
+        }
+        console.log("🔄 Refreshing transaction status for:", transactionId, "user:", userId);
+        // For now, just return success - in a real implementation,
+        // this would check the latest status from Stripe and update the database
+        return c.json({
+            success: true,
+            message: "Transaction status refreshed",
+            transactionId,
+            userId,
+        });
+    }
+    catch (error) {
+        console.error("❌ Transaction refresh error:", error);
+        return c.json({ error: "Failed to refresh transaction" }, 500);
+    }
+});
+// Get user transactions endpoint
+app.get("/api/transactions/:userId", async (c) => {
     try {
         const userId = c.req.param("userId");
         if (!userId) {
-            return c.json({ error: "User ID is required" }, 400);
+            return c.json({ error: "Missing userId parameter" }, 400);
         }
-        const stripeAccountId = await StripeService.getUserStripeAccount(userId);
-        if (!stripeAccountId) {
-            return c.json({ error: "No Stripe account found for user" }, 404);
-        }
-        return c.json({ stripeAccountId });
+        console.log("📊 Getting transactions for user:", userId);
+        const userTransactions = await db
+            .select()
+            .from(transactions)
+            .where(eq(transactions.userId, userId))
+            .orderBy(desc(transactions.createdAt));
+        // Transform to match frontend interface
+        const formattedTransactions = userTransactions.map((tx) => ({
+            id: tx.id,
+            type: tx.type,
+            amount: tx.amount,
+            description: tx.description,
+            merchant: tx.merchant,
+            date: tx.date,
+            status: tx.status,
+            cardLast4: tx.cardLast4,
+            qrCode: tx.qrCode,
+            expiresAt: tx.expiresAt,
+            paymentMethod: tx.paymentMethod,
+            stripePaymentIntentId: tx.stripePaymentIntentId,
+            stripeInvoiceId: tx.stripeInvoiceId,
+            stripePaymentLinkId: tx.stripePaymentLinkId,
+            customerName: tx.customerName,
+            customerEmail: tx.customerEmail,
+        }));
+        return c.json({
+            success: true,
+            transactions: formattedTransactions,
+        });
     }
     catch (error) {
-        console.error("Stripe user account lookup error:", error);
+        console.error("❌ Transactions error:", error);
+        return c.json({ error: "Failed to get transactions" }, 500);
+    }
+});
+// Cancel transaction endpoint
+app.post("/api/transactions/cancel", async (c) => {
+    try {
+        const { transactionId, userId } = await c.req.json();
+        if (!transactionId || !userId) {
+            return c.json({ error: "Missing required fields: transactionId, userId" }, 400);
+        }
+        console.log("🗑️ Cancelling transaction:", transactionId, "for user:", userId);
+        // Get transaction details
+        const transaction = await db
+            .select()
+            .from(transactions)
+            .where(eq(transactions.id, transactionId))
+            .limit(1);
+        if (transaction.length === 0) {
+            return c.json({ error: "Transaction not found" }, 404);
+        }
+        const tx = transaction[0];
+        // Check if user owns this transaction
+        if (tx.userId !== userId) {
+            return c.json({ error: "Unauthorized" }, 403);
+        }
+        // Handle payment link cancellation
+        if (tx.stripePaymentLinkId && tx.status === "pending") {
+            await StripeService.cancelPaymentLink(tx.stripePaymentLinkId, userId);
+        }
+        else {
+            // Update transaction status directly
+            await db
+                .update(transactions)
+                .set({
+                status: "cancelled",
+                updatedAt: new Date(),
+                notes: "Transaction cancelled by user",
+            })
+                .where(eq(transactions.id, transactionId));
+        }
         return c.json({
+            success: true,
+            message: "Transaction cancelled successfully",
+        });
+    }
+    catch (error) {
+        console.error("❌ Transaction cancellation error:", error);
+        return c.json({
+            success: false,
             error: error instanceof Error
                 ? error.message
-                : "Failed to retrieve user Stripe account",
+                : "Failed to cancel transaction",
         }, 500);
     }
 });
-// Stripe Connect endpoint for updating onboarding completion status
-app.post("/api/stripe/complete-onboarding", async (c) => {
+// Debug endpoint to test basic database write
+app.post("/api/debug/test-update", async (c) => {
     try {
-        const requestData = await c.req.json();
-        console.log("Stripe onboarding completion request:", requestData);
-        const { userId, stripeAccountId } = requestData;
-        if (!userId || !stripeAccountId) {
-            return c.json({
-                error: "Missing required fields: userId, stripeAccountId",
-            }, 400);
-        }
-        // Update the user's onboarding completion status in the database
-        await db
+        const { userId } = await c.req.json();
+        console.log(`🔧 Testing database update for user ${userId}`);
+        // First, let's see what the current user data looks like
+        const currentUser = await db
+            .select()
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+        console.log(`📊 Current user data:`, currentUser[0]);
+        const result = await db
             .update(users)
             .set({
+            email: "updated-" + Date.now() + "@test.com",
+            updatedAt: new Date(),
+        })
+            .where(eq(users.id, userId));
+        console.log(`✅ Basic update result:`, result);
+        // Now check what it looks like after the update
+        const updatedUser = await db
+            .select()
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+        console.log(`📊 Updated user data:`, updatedUser[0]);
+        return c.json({
+            success: true,
+            message: "Basic update test completed",
+            before: currentUser[0],
+            after: updatedUser[0],
+        });
+    }
+    catch (error) {
+        console.error("❌ Debug test error:", error);
+        return c.json({
+            error: "Failed to test update",
+            details: error instanceof Error ? error.message : "Unknown error",
+        }, 500);
+    }
+});
+// Debug endpoint to check database columns
+app.get("/api/debug/check-columns", async (c) => {
+    try {
+        console.log("🔍 Checking database columns...");
+        // Check if users table has the required columns
+        const usersColumns = await db.execute(sql `
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_name = 'users'
+      AND column_name IN ('stripe_account_id', 'stripe_onboarding_completed')
+      ORDER BY column_name;
+    `);
+        // Check if transactions table exists
+        const transactionsTable = await db.execute(sql `
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_name = 'transactions';
+    `);
+        return c.json({
+            success: true,
+            usersColumns: usersColumns,
+            transactionsTable: transactionsTable,
+        });
+    }
+    catch (error) {
+        console.error("❌ Debug check error:", error);
+        return c.json({
+            error: "Failed to check database",
+            details: error instanceof Error ? error.message : "Unknown error",
+        }, 500);
+    }
+});
+// Debug endpoint to manually update user Stripe account
+app.post("/api/debug/update-stripe-account", async (c) => {
+    try {
+        const { userId, stripeAccountId } = await c.req.json();
+        console.log(`🔧 Manually updating user ${userId} with Stripe account ${stripeAccountId}`);
+        const result = await db
+            .update(users)
+            .set({
+            stripeAccountId: stripeAccountId,
             stripeOnboardingCompleted: true,
             updatedAt: new Date(),
         })
             .where(eq(users.id, userId));
-        console.log(`✅ Marked onboarding as completed for user ${userId} with account ${stripeAccountId}`);
+        console.log(`✅ Update result:`, result);
         return c.json({
             success: true,
-            message: "Onboarding completion status updated successfully",
+            message: "User Stripe account updated",
+            userId,
+            stripeAccountId,
         });
     }
     catch (error) {
-        console.error("Stripe onboarding completion error:", error);
-        return c.json({
-            error: error instanceof Error
-                ? error.message
-                : "Failed to update onboarding completion status",
-        }, 500);
+        console.error("❌ Debug update error:", error);
+        return c.json({ error: "Failed to update user" }, 500);
     }
 });
-// Stripe onboarding redirect endpoints
-app.get("/stripe/return", async (c) => {
-    console.log("Stripe onboarding completed - showing success page");
-    const html = `
-  <!DOCTYPE html>
-  <html>
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Setup Complete</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background-color: #ffffff;
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-      }
-      .header {
-        padding: 24px 24px 8px;
-        text-align: right;
-      }
-      .close-btn {
-        background: none;
-        border: none;
-        font-size: 24px;
-        color: #6b7280;
-        cursor: pointer;
-        padding: 8px;
-        border-radius: 8px;
-      }
-      .close-btn:hover {
-        background-color: #f3f4f6;
-      }
-      .center-content {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 0 24px;
-      }
-      .success-icon {
-        width: 48px;
-        height: 48px;
-        margin-bottom: 16px;
-      }
-      .title {
-        font-size: 28px;
-        font-weight: 600;
-        color: #111827;
-        margin-bottom: 8px;
-        text-align: center;
-        letter-spacing: -1px;
-      }
-      .subtitle {
-        font-size: 16px;
-        color: #6b7280;
-        text-align: center;
-        line-height: 1.5;
-        margin-bottom: 32px;
-        padding: 0 16px;
-      }
-      .continue-btn {
-        background-color: #3AB75C;
-        color: white;
-        border: none;
-        border-radius: 24px;
-        padding: 12px 24px;
-        font-size: 16px;
-        font-weight: 600;
-        cursor: pointer;
-        width: 100%;
-        max-width: 280px;
-        height: 48px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        text-decoration: none;
-        margin: 0 auto 24px;
-      }
-      .continue-btn:hover {
-        background-color: #2d8f4c;
-      }
-      .footer-text {
-        text-align: center;
-        font-size: 14px;
-        color: #9ca3af;
-        margin-bottom: 24px;
-        padding: 0 24px;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="header">
-      <button class="close-btn" onclick="closeWindow()">✕</button>
-    </div>
-
-    <div class="center-content">
-      <svg class="success-icon" width="48" height="48" viewBox="0 0 49 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M24.5 48C37.7548 48 48.5 37.2548 48.5 24C48.5 10.7452 37.7548 0 24.5 0C11.2452 0 0.5 10.7452 0.5 24C0.5 37.2548 11.2452 48 24.5 48Z" fill="#3AB75C"/>
-        <path d="M38.2217 17.5032L25.2289 30.4969L24.4995 31.2263L20.5883 35.1366L15.9477 30.4969L10.7773 25.3257L15.418 20.685L20.5883 25.8563L24.4995 21.945L33.5811 12.8635L38.2217 17.5032Z" fill="white"/>
-      </svg>
-      <h1 class="title">Setup Complete!</h1>
-      <p class="subtitle">Your Stripe merchant account has been successfully configured.</p>
-      <a href="handypay://stripe/success" class="continue-btn">Continue to HandyPay</a>
-    </div>
-
-    <p class="footer-text">This page will automatically close and redirect to the app</p>
-
-    <script>
-      // Auto-redirect after 2 seconds
-      setTimeout(() => {
-        window.location.href = 'handypay://stripe/success';
-      }, 2000);
-
-      // Close window function for manual close
-      function closeWindow() {
-        // Try to close the window or redirect to app
-        window.location.href = 'handypay://stripe/success';
-      }
-
-      // Listen for visibility change to handle when user returns to app
-      document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'hidden') {
-          // User has switched away from this page (likely to the app)
-          // The redirect will happen automatically
-        }
-      });
-    </script>
-  </body>
-  </html>
-  `;
-    return c.html(html);
-});
-app.get("/stripe/refresh", async (c) => {
-    console.log("Stripe onboarding refresh - user exited");
-    const html = `
-  <!DOCTYPE html>
-  <html>
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Setup Paused</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background-color: #ffffff;
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-      }
-      .header {
-        padding: 24px 24px 8px;
-        text-align: right;
-      }
-      .close-btn {
-        background: none;
-        border: none;
-        font-size: 24px;
-        color: #6b7280;
-        cursor: pointer;
-        padding: 8px;
-        border-radius: 8px;
-      }
-      .close-btn:hover {
-        background-color: #f3f4f6;
-      }
-      .center-content {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 0 24px;
-      }
-      .icon {
-        width: 48px;
-        height: 48px;
-        margin-bottom: 16px;
-        font-size: 48px;
-      }
-      .title {
-        font-size: 28px;
-        font-weight: 600;
-        color: #111827;
-        margin-bottom: 8px;
-        text-align: center;
-        letter-spacing: -1px;
-      }
-      .subtitle {
-        font-size: 16px;
-        color: #6b7280;
-        text-align: center;
-        line-height: 1.5;
-        margin-bottom: 32px;
-        padding: 0 16px;
-      }
-      .continue-btn {
-        background-color: #3b82f6;
-        color: white;
-        border: none;
-        border-radius: 24px;
-        padding: 12px 24px;
-        font-size: 16px;
-        font-weight: 600;
-        cursor: pointer;
-        width: 100%;
-        max-width: 280px;
-        height: 48px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        text-decoration: none;
-        margin: 0 auto 24px;
-      }
-      .continue-btn:hover {
-        background-color: #2563eb;
-      }
-      .footer-text {
-        text-align: center;
-        font-size: 14px;
-        color: #9ca3af;
-        margin-bottom: 24px;
-        padding: 0 24px;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="header">
-      <button class="close-btn" onclick="closeWindow()">✕</button>
-    </div>
-
-    <div class="center-content">
-      <div class="icon">⏸️</div>
-      <h1 class="title">Setup Paused</h1>
-      <p class="subtitle">You exited the Stripe setup process. You can continue later.</p>
-      <a href="handypay://stripe/refresh" class="continue-btn">Return to HandyPay</a>
-    </div>
-
-    <p class="footer-text">This page will automatically close and redirect to the app</p>
-
-    <script>
-      // Auto-redirect after 2 seconds
-      setTimeout(() => {
-        window.location.href = 'handypay://stripe/refresh';
-      }, 2000);
-
-      // Close window function for manual close
-      function closeWindow() {
-        window.location.href = 'handypay://stripe/refresh';
-      }
-
-      // Listen for visibility change
-      document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'hidden') {
-          // User has switched away from this page
-        }
-      });
-    </script>
-  </body>
-  </html>
-  `;
-    return c.html(html);
-});
-// Google OAuth callback endpoint
-app.get("/auth/google/callback", async (c) => {
-    const code = c.req.query("code");
-    const error = c.req.query("error");
-    const state = c.req.query("state");
-    console.log("Google OAuth callback:", { code: !!code, error, state });
-    let redirectUrl;
-    let pageTitle;
-    let pageMessage;
-    if (error) {
-        console.error("Google OAuth error:", error);
-        redirectUrl = `handypay://google/error?error=${encodeURIComponent(error)}`;
-        pageTitle = "Authentication Error";
-        pageMessage =
-            "There was an error with Google authentication. Redirecting back to HandyPay...";
-    }
-    else if (code) {
-        console.log("Google OAuth success, redirecting to app with code");
-        redirectUrl = `handypay://google/success?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || "")}`;
-        pageTitle = "Authentication Successful";
-        pageMessage =
-            "Google authentication successful! Redirecting back to HandyPay...";
-    }
-    else {
-        console.error("Google OAuth callback missing code and error");
-        redirectUrl = `handypay://google/error?error=invalid_request`;
-        pageTitle = "Authentication Error";
-        pageMessage =
-            "Invalid authentication response. Redirecting back to HandyPay...";
-    }
-    const html = `
-  <!DOCTYPE html>
-  <html>
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${pageTitle}</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background-color: #ffffff;
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        padding: 24px;
-        text-align: center;
-      }
-      .spinner {
-        border: 3px solid #f3f3f3;
-        border-top: 3px solid #3AB75C;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-        margin-bottom: 16px;
-      }
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-      .title {
-        font-size: 24px;
-        font-weight: 600;
-        color: #111827;
-        margin-bottom: 8px;
-      }
-      .message {
-        font-size: 16px;
-        color: #6b7280;
-        margin-bottom: 24px;
-        line-height: 1.5;
-      }
-      .manual-link {
-        color: #3AB75C;
-        text-decoration: none;
-        font-weight: 500;
-        padding: 12px 24px;
-        border: 1px solid #3AB75C;
-        border-radius: 8px;
-        display: inline-block;
-        margin-top: 16px;
-      }
-      .manual-link:hover {
-        background-color: #3AB75C;
-        color: white;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="spinner"></div>
-    <h1 class="title">${pageTitle}</h1>
-    <p class="message">${pageMessage}</p>
-    <a href="${redirectUrl}" class="manual-link">Tap here if not redirected automatically</a>
-
-    <script>
-      console.log('Attempting redirect to:', '${redirectUrl}');
-      
-      // Immediate redirect attempt
-      window.location.href = '${redirectUrl}';
-      
-      // Backup redirect after 1 second
-      setTimeout(() => {
-        console.log('Backup redirect attempt');
-        window.location.href = '${redirectUrl}';
-      }, 1000);
-      
-      // Final fallback after 3 seconds
-      setTimeout(() => {
-        console.log('Final redirect attempt');
-        try {
-          window.location.replace('${redirectUrl}');
-        } catch (error) {
-          console.error('Redirect failed:', error);
-        }
-      }, 3000);
-    </script>
-  </body>
-  </html>
-  `;
-    return c.html(html);
-});
-// Google OAuth token exchange endpoint
-app.post("/auth/google/token", async (c) => {
+// Stripe account status endpoint
+// GET endpoint for account status (frontend compatibility)
+app.get("/api/stripe/account-status/:accountId", async (c) => {
     try {
-        const { code, provider } = await c.req.json();
-        console.log(`${provider} token exchange request received`);
-        if (!code) {
-            return c.json({ error: "Authorization code is required" }, 400);
+        const stripeAccountId = c.req.param("accountId");
+        if (!stripeAccountId) {
+            return c.json({
+                error: "Missing required parameter: accountId",
+            }, 400);
         }
-        // Exchange code for tokens
-        const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: new URLSearchParams({
-                client_id: process.env.GOOGLE_CLIENT_ID,
-                client_secret: process.env.GOOGLE_CLIENT_SECRET,
-                code: code,
-                grant_type: "authorization_code",
-                redirect_uri: "https://handypay-backend.onrender.com/auth/google/callback",
-            }),
-        });
-        if (!tokenResponse.ok) {
-            const errorText = await tokenResponse.text();
-            console.error("Google token exchange failed:", errorText);
-            return c.json({ error: "Token exchange failed" }, 400);
-        }
-        const tokens = await tokenResponse.json();
-        console.log("Google tokens received:", {
-            access_token: !!tokens.access_token,
-        });
-        // Get user info from Google
-        const userResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-            headers: {
-                Authorization: `Bearer ${tokens.access_token}`,
-            },
-        });
-        if (!userResponse.ok) {
-            console.error("Failed to get user info from Google");
-            return c.json({ error: "Failed to get user info" }, 400);
-        }
-        const userInfo = await userResponse.json();
-        console.log("Google user info:", {
-            id: userInfo.id,
-            email: userInfo.email,
-        });
-        // Return user data to mobile app
+        console.log("📊 Checking Stripe account status for:", stripeAccountId);
+        const accountStatus = await StripeService.getAccountStatus(stripeAccountId);
         return c.json({
-            user: {
-                id: userInfo.id,
-                email: userInfo.email,
-                name: userInfo.name,
-                firstName: userInfo.given_name,
-                lastName: userInfo.family_name,
-                picture: userInfo.picture,
-            },
-            tokens: {
-                access_token: tokens.access_token,
-                refresh_token: tokens.refresh_token,
-                expires_in: tokens.expires_in,
-            },
+            success: true,
+            stripeOnboardingComplete: accountStatus.charges_enabled,
+            accountStatus,
         });
     }
     catch (error) {
-        console.error("Google token exchange error:", error);
+        console.error("❌ Stripe account status error:", error);
         return c.json({
-            error: "Token exchange failed",
+            success: false,
+            error: "Failed to get Stripe account status",
             details: error instanceof Error ? error.message : "Unknown error",
         }, 500);
     }
 });
-// Auth verification endpoint for mobile app
-app.post("/auth/verify", async (c) => {
+// POST endpoint for account status (existing)
+app.post("/api/stripe/account-status", async (c) => {
     try {
-        const { provider, tokens, userInfo } = await c.req.json();
-        console.log(`Verifying ${provider} authentication:`, {
-            hasAccessToken: !!tokens?.access_token,
-            hasIdToken: !!tokens?.id_token,
-            hasRefreshToken: !!tokens?.refresh_token,
-            userInfo: userInfo
-                ? { name: userInfo.name, email: userInfo.email }
-                : null,
-        });
-        // Here you would typically:
-        // 1. Verify the token with the provider
-        // 2. Create or update user in your database
-        // 3. Return user session/token
-        // For now, just validate the request structure
-        if (!provider || !tokens) {
-            return c.json({ error: "Missing provider or tokens" }, 400);
+        const { stripeAccountId } = await c.req.json();
+        if (!stripeAccountId) {
+            return c.json({
+                error: "Missing required field: stripeAccountId",
+            }, 400);
         }
-        // Mock successful verification
+        console.log("📊 Checking Stripe account status for:", stripeAccountId);
+        const accountStatus = await StripeService.getAccountStatus(stripeAccountId);
         return c.json({
             success: true,
-            message: `${provider} authentication verified`,
-            user: {
-                id: userInfo?.id || userInfo?.sub,
-                email: userInfo?.email,
-                name: userInfo?.name,
-                provider: provider,
-            },
+            stripeOnboardingComplete: accountStatus.charges_enabled,
+            accountStatus,
         });
     }
     catch (error) {
-        console.error("Auth verification error:", error);
+        console.error("❌ Stripe account status error:", error);
         return c.json({
-            error: "Verification failed",
+            success: false,
+            error: "Failed to get Stripe account status",
             details: error instanceof Error ? error.message : "Unknown error",
         }, 500);
     }
 });
-// Better Auth handler - this should handle ALL /auth/* routes
-app.all("/auth/*", async (c) => {
-    console.log(`Better Auth route: ${c.req.method} ${c.req.url}`);
-    console.log("Request headers:", Object.fromEntries(c.req.raw.headers.entries()));
-    try {
-        const response = await auth.handler(c.req.raw);
-        console.log("Better Auth response status:", response.status);
-        return response;
-    }
-    catch (error) {
-        console.error("Better Auth error:", error);
-        const errorMessage = error instanceof Error ? error.message : "Unknown authentication error";
-        return c.json({ error: "Authentication error", details: errorMessage }, 500);
-    }
-});
-const port = parseInt(process.env.PORT || "3000");
-console.log(`🚀 Server starting on port ${port}`);
-console.log(`📍 Better Auth URL: ${process.env.BETTER_AUTH_URL}`);
-console.log(`🔑 Google Client ID configured: ${!!process.env.GOOGLE_CLIENT_ID}`);
+const port = process.env.PORT || 3000;
+console.log(`🚀 Server starting on port ${port}...`);
 serve({
     fetch: app.fetch,
-    port,
-    hostname: "0.0.0.0", // Listen on all interfaces so iOS simulator can connect
+    port: Number(port),
 });
+console.log(`✅ Server running on http://localhost:${port}`);

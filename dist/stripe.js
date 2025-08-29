@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { db } from "./db.js";
-import { users } from "./schema.js";
+import { users, transactions } from "./schema.js";
 import { eq } from "drizzle-orm";
 const stripe = new Stripe(process.env.STRIPE_TEST_SECRET_KEY, {
     apiVersion: "2025-08-27.basil",
@@ -62,32 +62,78 @@ export class StripeService {
                 });
             }
             // Try to save the Stripe account ID to database (don't fail if user doesn't exist yet)
+            console.log(`🔄 Attempting to save Stripe account ${accountId} for user ${userId} to database...`);
             if (accountId) {
                 try {
+                    console.log(`🔍 Checking if user ${userId} exists in database...`);
                     // First check if user exists
                     const existingUser = await db
-                        .select({ id: users.id })
+                        .select({ id: users.id, stripeAccountId: users.stripeAccountId })
                         .from(users)
                         .where(eq(users.id, userId))
                         .limit(1);
+                    console.log(`📊 User existence check result:`, {
+                        userId,
+                        userExists: existingUser.length > 0,
+                        currentStripeAccountId: existingUser[0]?.stripeAccountId || null,
+                    });
                     if (existingUser.length > 0) {
-                        await db
+                        // User exists, update their Stripe account ID
+                        console.log(`📝 Updating existing user ${userId} with Stripe account ${accountId}`);
+                        const updateResult = await db
                             .update(users)
                             .set({
                             stripeAccountId: accountId,
                             updatedAt: new Date(),
                         })
                             .where(eq(users.id, userId));
-                        console.log(`✅ Saved Stripe account ID ${accountId} for existing user ${userId}`);
+                        console.log(`✅ Updated Stripe account ID ${accountId} for existing user ${userId}`, `Update result:`, updateResult);
                     }
                     else {
-                        console.log(`⚠️ User ${userId} not found in database, skipping DB update`);
+                        // User doesn't exist, create a minimal user record
+                        console.log(`👤 User ${userId} doesn't exist, creating new record with Stripe account ${accountId}`);
+                        const insertResult = await db.insert(users).values({
+                            id: userId,
+                            email: email || null,
+                            firstName: firstName || null,
+                            lastName: lastName || null,
+                            fullName: `${firstName || ""} ${lastName || ""}`.trim() || null,
+                            authProvider: "unknown", // Will be updated when user authenticates
+                            stripeAccountId: accountId,
+                            stripeOnboardingCompleted: false, // Will be updated when onboarding completes
+                            memberSince: new Date(),
+                            createdAt: new Date(),
+                            updatedAt: new Date(),
+                        });
+                        console.log(`✅ Created new user record and saved Stripe account ID ${accountId} for user ${userId}`, `Insert result:`, insertResult);
+                    }
+                    // Verify the save worked
+                    const verification = await db
+                        .select({ stripeAccountId: users.stripeAccountId })
+                        .from(users)
+                        .where(eq(users.id, userId))
+                        .limit(1);
+                    if (verification.length > 0 &&
+                        verification[0].stripeAccountId === accountId) {
+                        console.log(`✅ Database save verification successful: ${verification[0].stripeAccountId}`);
+                    }
+                    else {
+                        console.error(`❌ Database save verification failed! Expected: ${accountId}, Got: ${verification[0]?.stripeAccountId || "null"}`);
                     }
                 }
                 catch (err) {
-                    console.error("Error saving stripeAccountId to DB:", err);
-                    console.log("Continuing with account creation despite DB error...");
+                    console.error("❌ Error saving stripeAccountId to DB:", err);
+                    console.error("❌ Database error details:", {
+                        error: err,
+                        message: err instanceof Error ? err.message : "Unknown error",
+                        userId,
+                        accountId,
+                    });
+                    console.log("⚠️ Continuing with account creation despite DB error...");
                 }
+            }
+            else {
+                console.error("❌ No accountId provided to save to database!");
             }
             // Create account link for onboarding
             const accountLink = await stripe.accountLinks.create({
@@ -129,16 +175,332 @@ export class StripeService {
     }
     static async getUserStripeAccount(userId) {
         try {
+            console.log(`🔍 Querying database for user ${userId} Stripe account...`);
             const result = await db
-                .select({ stripeAccountId: users.stripeAccountId })
+                .select({
+                stripeAccountId: users.stripeAccountId,
+                id: users.id,
+                email: users.email,
+            })
                 .from(users)
                 .where(eq(users.id, userId))
                 .limit(1);
+            console.log(`📊 Database query result for user ${userId}:`, {
+                found: result.length > 0,
+                userId: result[0]?.id || "null",
+                stripeAccountId: result[0]?.stripeAccountId || "null",
+                email: result[0]?.email || "null",
+            });
             return result.length > 0 ? result[0].stripeAccountId : null;
         }
         catch (error) {
-            console.error("Error retrieving user Stripe account:", error);
+            console.error("❌ Error retrieving user Stripe account:", error);
+            console.error("❌ Database query error details:", {
+                userId,
+                error: error instanceof Error ? error.message : "Unknown error",
+                stack: error instanceof Error ? error.stack : undefined,
+            });
             return null;
         }
+    }
+    static async createPaymentLink({ handyproUserId, customerName, customerEmail, description, amount, taskDetails, dueDate, }) {
+        try {
+            console.log(`💳 Creating payment link for user ${handyproUserId}, amount: ${amount} cents`);
+            // Get the user's Stripe account ID
+            const stripeAccountId = await this.getUserStripeAccount(handyproUserId);
+            if (!stripeAccountId) {
+                throw new Error("User does not have a Stripe account set up");
+            }
+            // Verify the account can accept payments
+            const accountStatus = await this.getAccountStatus(stripeAccountId);
+            if (!accountStatus.charges_enabled) {
+                throw new Error("Your Stripe account is not ready to accept payments. Please complete your onboarding.");
+            }
+            // Create a payment link using Stripe's Payment Links API
+            const paymentLink = await stripe.paymentLinks.create({
+                line_items: [
+                    {
+                        price_data: {
+                            currency: "jmd",
+                            product_data: {
+                                name: description || "Payment",
+                                description: taskDetails || description,
+                            },
+                            unit_amount: amount, // Amount in cents
+                        },
+                        quantity: 1,
+                    },
+                ],
+                after_completion: {
+                    type: "hosted_confirmation",
+                    hosted_confirmation: {
+                        custom_message: "Thank you for your payment! Your HandyPro will be in touch soon.",
+                    },
+                },
+                customer_creation: customerEmail ? "always" : "if_required",
+                ...(customerEmail && {
+                    customer_email: customerEmail,
+                }),
+                metadata: {
+                    handyproUserId,
+                    customerName: customerName || "",
+                    taskDetails: taskDetails || "",
+                },
+                ...(dueDate && {
+                    expires_at: Math.floor(new Date(dueDate).getTime() / 1000),
+                }),
+                transfer_data: {
+                    destination: stripeAccountId,
+                },
+            });
+            console.log(`✅ Payment link created: ${paymentLink.url}`);
+            // Store transaction in database
+            try {
+                await db.insert(transactions).values({
+                    id: `plink_${paymentLink.id}`,
+                    userId: handyproUserId,
+                    type: "payment_link",
+                    amount: amount,
+                    currency: "JMD",
+                    description: description || `Payment for $${(amount / 100).toFixed(2)}`,
+                    status: "pending",
+                    date: new Date(),
+                    stripePaymentLinkId: paymentLink.id,
+                    customerName: customerName || undefined,
+                    customerEmail: customerEmail || undefined,
+                    paymentMethod: "payment_link",
+                    metadata: JSON.stringify({
+                        handyproUserId,
+                        customerName: customerName || "",
+                        taskDetails: taskDetails || "",
+                        dueDate: dueDate || null,
+                    }),
+                    ...(dueDate && { expiresAt: new Date(dueDate) }),
+                });
+                console.log(`💾 Transaction stored in database: plink_${paymentLink.id}`);
+            }
+            catch (dbError) {
+                console.error("❌ Failed to store transaction in database:", dbError);
+                // Don't fail the payment link creation if DB storage fails
+            }
+            return {
+                id: paymentLink.id,
+                hosted_invoice_url: paymentLink.url,
+                status: paymentLink.active ? "open" : "inactive",
+                amount_due: amount,
+                payment_link: paymentLink.url,
+            };
+        }
+        catch (error) {
+            console.error("❌ Error creating payment link:", error);
+            throw error;
+        }
+    }
+    static async cancelPaymentLink(paymentLinkId, userId) {
+        try {
+            console.log(`🗑️ Cancelling payment link ${paymentLinkId} for user ${userId}`);
+            // Verify the user owns this payment link
+            const userStripeAccount = await this.getUserStripeAccount(userId);
+            if (!userStripeAccount) {
+                throw new Error("User does not have a Stripe account");
+            }
+            // Cancel the payment link
+            const cancelledPaymentLink = await stripe.paymentLinks.update(paymentLinkId, {
+                active: false,
+            });
+            console.log(`✅ Payment link ${paymentLinkId} cancelled successfully`);
+            // Update transaction status in database
+            try {
+                await db
+                    .update(transactions)
+                    .set({
+                    status: "cancelled",
+                    updatedAt: new Date(),
+                    notes: "Payment link cancelled by user",
+                })
+                    .where(eq(transactions.stripePaymentLinkId, paymentLinkId));
+                console.log(`💾 Updated transaction status to cancelled in database`);
+            }
+            catch (dbError) {
+                console.error("❌ Failed to update transaction in database:", dbError);
+            }
+            return {
+                id: cancelledPaymentLink.id,
+                active: cancelledPaymentLink.active,
+                url: cancelledPaymentLink.url,
+                cancelled_at: new Date(),
+            };
+        }
+        catch (error) {
+            console.error("❌ Error cancelling payment link:", error);
+            throw error;
+        }
+    }
+    static async expirePaymentLink(paymentLinkId, userId) {
+        try {
+            console.log(`⏰ Expiring payment link ${paymentLinkId} for user ${userId}`);
+            // Verify the user owns this payment link
+            const userStripeAccount = await this.getUserStripeAccount(userId);
+            if (!userStripeAccount) {
+                throw new Error("User does not have a Stripe account");
+            }
+            // Set expiration to current time (will expire immediately)
+            const expiredPaymentLink = await stripe.paymentLinks.update(paymentLinkId, {
+                active: false, // Deactivate instead of setting expiration
+            });
+            console.log(`✅ Payment link ${paymentLinkId} expired successfully`);
+            return {
+                id: expiredPaymentLink.id,
+                active: expiredPaymentLink.active,
+                url: expiredPaymentLink.url,
+                expires_at: Math.floor(Date.now() / 1000),
+            };
+        }
+        catch (error) {
+            console.error("❌ Error expiring payment link:", error);
+            throw error;
+        }
+    }
+    static async handleWebhook(rawBody, signature) {
+        try {
+            const event = stripe.webhooks.constructEvent(rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
+            console.log(`🎣 Webhook received: ${event.type}`);
+            switch (event.type) {
+                case "payment_intent.succeeded":
+                    await this.handlePaymentIntentSucceeded(event.data.object);
+                    break;
+                case "payment_intent.payment_failed":
+                    await this.handlePaymentIntentFailed(event.data.object);
+                    break;
+                case "checkout.session.completed":
+                    await this.handleCheckoutSessionCompleted(event.data.object);
+                    break;
+                case "invoice.payment_succeeded":
+                    await this.handleInvoicePaymentSucceeded(event.data.object);
+                    break;
+                case "invoice.payment_failed":
+                    await this.handleInvoicePaymentFailed(event.data.object);
+                    break;
+                default:
+                    console.log(`Unhandled webhook event: ${event.type}`);
+            }
+            return { received: true };
+        }
+        catch (error) {
+            console.error("❌ Webhook error:", error);
+            throw error;
+        }
+    }
+    static async handlePaymentIntentSucceeded(paymentIntent) {
+        console.log("💰 Payment intent succeeded:", paymentIntent.id);
+        try {
+            // Find the transaction by payment intent ID
+            const existingTransaction = await db
+                .select()
+                .from(transactions)
+                .where(eq(transactions.stripePaymentIntentId, paymentIntent.id))
+                .limit(1);
+            if (existingTransaction.length > 0) {
+                // Update existing transaction
+                await db
+                    .update(transactions)
+                    .set({
+                    status: "completed",
+                    updatedAt: new Date(),
+                })
+                    .where(eq(transactions.stripePaymentIntentId, paymentIntent.id));
+                console.log(`✅ Updated transaction status to completed: ${existingTransaction[0].id}`);
+            }
+            else {
+                // Create new transaction if it doesn't exist
+                const transactionId = `pi_${paymentIntent.id}`;
+                const userId = paymentIntent.metadata?.handyproUserId || "unknown";
+                await db.insert(transactions).values({
+                    id: transactionId,
+                    userId: userId,
+                    type: "received",
+                    amount: paymentIntent.amount,
+                    currency: paymentIntent.currency.toUpperCase(),
+                    description: paymentIntent.description || "Payment received",
+                    status: "completed",
+                    date: new Date(),
+                    stripePaymentIntentId: paymentIntent.id,
+                    customerName: paymentIntent.metadata?.customerName,
+                    customerEmail: paymentIntent.metadata?.customerEmail,
+                    paymentMethod: "card",
+                    cardLast4: paymentIntent.charges?.data?.[0]?.payment_method_details?.card
+                        ?.last4,
+                    cardBrand: paymentIntent.charges?.data?.[0]?.payment_method_details?.card
+                        ?.brand,
+                    metadata: JSON.stringify(paymentIntent.metadata || {}),
+                });
+                console.log(`💾 Created new transaction: ${transactionId}`);
+            }
+            console.log("Payment successful:", {
+                id: paymentIntent.id,
+                amount: paymentIntent.amount,
+                currency: paymentIntent.currency,
+                metadata: paymentIntent.metadata,
+            });
+        }
+        catch (error) {
+            console.error("❌ Error processing payment intent success:", error);
+        }
+    }
+    static async handlePaymentIntentFailed(paymentIntent) {
+        console.log("❌ Payment intent failed:", paymentIntent.id);
+        try {
+            // Update transaction status to failed
+            const result = await db
+                .update(transactions)
+                .set({
+                status: "failed",
+                updatedAt: new Date(),
+                notes: `Payment failed: ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
+            })
+                .where(eq(transactions.stripePaymentIntentId, paymentIntent.id));
+            console.log(`✅ Updated transaction status to failed: ${paymentIntent.id}`);
+            console.log("Payment failed:", {
+                id: paymentIntent.id,
+                amount: paymentIntent.amount,
+                currency: paymentIntent.currency,
+                last_payment_error: paymentIntent.last_payment_error,
+                metadata: paymentIntent.metadata,
+            });
+        }
+        catch (error) {
+            console.error("❌ Error processing payment intent failure:", error);
+        }
+    }
+    static async handleCheckoutSessionCompleted(session) {
+        console.log("✅ Checkout session completed:", session.id);
+        console.log("Checkout completed:", {
+            id: session.id,
+            payment_status: session.payment_status,
+            amount_total: session.amount_total,
+            currency: session.currency,
+            metadata: session.metadata,
+        });
+    }
+    static async handleInvoicePaymentSucceeded(invoice) {
+        console.log("💳 Invoice payment succeeded:", invoice.id);
+        console.log("Invoice payment successful:", {
+            id: invoice.id,
+            amount_paid: invoice.amount_paid,
+            currency: invoice.currency,
+            customer_email: invoice.customer_email,
+            metadata: invoice.metadata,
+        });
+    }
+    static async handleInvoicePaymentFailed(invoice) {
+        console.log("❌ Invoice payment failed:", invoice.id);
+        console.log("Invoice payment failed:", {
+            id: invoice.id,
+            amount_due: invoice.amount_due,
+            currency: invoice.currency,
+            customer_email: invoice.customer_email,
+            attempt_count: invoice.attempt_count,
+            metadata: invoice.metadata,
+        });
     }
 }

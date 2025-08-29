@@ -6,6 +6,11 @@ import { StripeService } from "./stripe.js";
 import { db } from "./db.js";
 import { users, transactions } from "./schema.js";
 import { eq, desc, sql } from "drizzle-orm";
+import Stripe from "stripe";
+
+const stripe = new Stripe(process.env.STRIPE_TEST_SECRET_KEY as string, {
+  apiVersion: "2025-08-27.basil",
+});
 
 const app = new Hono();
 
@@ -120,7 +125,8 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
       console.log("⚠️ Onboarding not yet complete - charges not enabled");
       return c.json({
         success: false,
-        message: "Onboarding not yet complete. Please complete all required information in Stripe.",
+        message:
+          "Onboarding not yet complete. Please complete all required information in Stripe.",
         accountStatus,
       });
     }
@@ -829,8 +835,8 @@ app.get("/api/debug/check-columns", async (c) => {
 
     return c.json({
       success: true,
-      usersColumns: usersColumns.rows,
-      transactionsTable: transactionsTable.rows,
+      usersColumns: usersColumns,
+      transactionsTable: transactionsTable,
     });
   } catch (error) {
     console.error("❌ Debug check error:", error);
