@@ -4,8 +4,8 @@ import { serve } from "@hono/node-server";
 import { cors } from "hono/cors";
 import { StripeService } from "./stripe.js";
 import { db } from "./db.js";
-import { users } from "./schema.js";
-import { eq } from "drizzle-orm";
+import { users, transactions } from "./schema.js";
+import { eq, desc } from "drizzle-orm";
 
 const app = new Hono();
 
@@ -568,6 +568,113 @@ app.post("/api/stripe/refresh-transaction", async (c) => {
   } catch (error) {
     console.error("❌ Transaction refresh error:", error);
     return c.json({ error: "Failed to refresh transaction" }, 500);
+  }
+});
+
+// Get user transactions endpoint
+app.get("/api/transactions/:userId", async (c) => {
+  try {
+    const userId = c.req.param("userId");
+
+    if (!userId) {
+      return c.json({ error: "Missing userId parameter" }, 400);
+    }
+
+    console.log("📊 Getting transactions for user:", userId);
+
+    const userTransactions = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.userId, userId))
+      .orderBy(desc(transactions.createdAt));
+
+    // Transform to match frontend interface
+    const formattedTransactions = userTransactions.map(tx => ({
+      id: tx.id,
+      type: tx.type,
+      amount: tx.amount,
+      description: tx.description,
+      merchant: tx.merchant,
+      date: tx.date,
+      status: tx.status,
+      cardLast4: tx.cardLast4,
+      qrCode: tx.qrCode,
+      expiresAt: tx.expiresAt,
+      paymentMethod: tx.paymentMethod,
+      stripePaymentIntentId: tx.stripePaymentIntentId,
+      stripeInvoiceId: tx.stripeInvoiceId,
+      stripePaymentLinkId: tx.stripePaymentLinkId,
+      customerName: tx.customerName,
+      customerEmail: tx.customerEmail,
+    }));
+
+    return c.json({
+      success: true,
+      transactions: formattedTransactions,
+    });
+  } catch (error) {
+    console.error("❌ Transactions error:", error);
+    return c.json({ error: "Failed to get transactions" }, 500);
+  }
+});
+
+// Cancel transaction endpoint
+app.post("/api/transactions/cancel", async (c) => {
+  try {
+    const { transactionId, userId } = await c.req.json();
+
+    if (!transactionId || !userId) {
+      return c.json({ error: "Missing required fields: transactionId, userId" }, 400);
+    }
+
+    console.log("🗑️ Cancelling transaction:", transactionId, "for user:", userId);
+
+    // Get transaction details
+    const transaction = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.id, transactionId))
+      .limit(1);
+
+    if (transaction.length === 0) {
+      return c.json({ error: "Transaction not found" }, 404);
+    }
+
+    const tx = transaction[0];
+
+    // Check if user owns this transaction
+    if (tx.userId !== userId) {
+      return c.json({ error: "Unauthorized" }, 403);
+    }
+
+    // Handle payment link cancellation
+    if (tx.stripePaymentLinkId && tx.status === 'pending') {
+      await StripeService.cancelPaymentLink(tx.stripePaymentLinkId, userId);
+    } else {
+      // Update transaction status directly
+      await db
+        .update(transactions)
+        .set({
+          status: 'cancelled',
+          updatedAt: new Date(),
+          notes: 'Transaction cancelled by user',
+        })
+        .where(eq(transactions.id, transactionId));
+    }
+
+    return c.json({
+      success: true,
+      message: "Transaction cancelled successfully",
+    });
+  } catch (error) {
+    console.error("❌ Transaction cancellation error:", error);
+    return c.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to cancel transaction",
+      },
+      500
+    );
   }
 });
 

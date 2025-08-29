@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { db } from "./db.js";
-import { users } from "./schema.js";
+import { users, transactions } from "./schema.js";
 import { eq } from "drizzle-orm";
 
 const stripe = new Stripe(process.env.STRIPE_TEST_SECRET_KEY as string, {
@@ -345,6 +345,36 @@ export class StripeService {
 
       console.log(`✅ Payment link created: ${paymentLink.url}`);
 
+      // Store transaction in database
+      try {
+        await db.insert(transactions).values({
+          id: `plink_${paymentLink.id}`,
+          userId: handyproUserId,
+          type: "payment_link",
+          amount: amount,
+          currency: "JMD",
+          description: description || `Payment for $${(amount / 100).toFixed(2)}`,
+          status: "pending",
+          date: new Date(),
+          stripePaymentLinkId: paymentLink.id,
+          customerName: customerName || undefined,
+          customerEmail: customerEmail || undefined,
+          paymentMethod: "payment_link",
+          metadata: JSON.stringify({
+            handyproUserId,
+            customerName: customerName || '',
+            taskDetails: taskDetails || '',
+            dueDate: dueDate || null,
+          }),
+          ...(dueDate && { expiresAt: new Date(dueDate) }),
+        });
+
+        console.log(`💾 Transaction stored in database: plink_${paymentLink.id}`);
+      } catch (dbError) {
+        console.error("❌ Failed to store transaction in database:", dbError);
+        // Don't fail the payment link creation if DB storage fails
+      }
+
       return {
         id: paymentLink.id,
         hosted_invoice_url: paymentLink.url,
@@ -374,6 +404,22 @@ export class StripeService {
       });
 
       console.log(`✅ Payment link ${paymentLinkId} cancelled successfully`);
+
+      // Update transaction status in database
+      try {
+        await db
+          .update(transactions)
+          .set({
+            status: 'cancelled',
+            updatedAt: new Date(),
+            notes: 'Payment link cancelled by user',
+          })
+          .where(eq(transactions.stripePaymentLinkId, paymentLinkId));
+
+        console.log(`💾 Updated transaction status to cancelled in database`);
+      } catch (dbError) {
+        console.error('❌ Failed to update transaction in database:', dbError);
+      }
 
       return {
         id: cancelledPaymentLink.id,
@@ -461,27 +507,90 @@ export class StripeService {
   private static async handlePaymentIntentSucceeded(paymentIntent: any) {
     console.log('💰 Payment intent succeeded:', paymentIntent.id);
 
-    // Update transaction status in database
-    // This would typically update a transactions table
-    // For now, we'll just log the event
-    console.log('Payment successful:', {
-      id: paymentIntent.id,
-      amount: paymentIntent.amount,
-      currency: paymentIntent.currency,
-      metadata: paymentIntent.metadata,
-    });
+    try {
+      // Find the transaction by payment intent ID
+      const existingTransaction = await db
+        .select()
+        .from(transactions)
+        .where(eq(transactions.stripePaymentIntentId, paymentIntent.id))
+        .limit(1);
+
+      if (existingTransaction.length > 0) {
+        // Update existing transaction
+        await db
+          .update(transactions)
+          .set({
+            status: 'completed',
+            updatedAt: new Date(),
+          })
+          .where(eq(transactions.stripePaymentIntentId, paymentIntent.id));
+
+        console.log(`✅ Updated transaction status to completed: ${existingTransaction[0].id}`);
+      } else {
+        // Create new transaction if it doesn't exist
+        const transactionId = `pi_${paymentIntent.id}`;
+        const userId = paymentIntent.metadata?.handyproUserId || 'unknown';
+
+        await db.insert(transactions).values({
+          id: transactionId,
+          userId: userId,
+          type: 'received',
+          amount: paymentIntent.amount,
+          currency: paymentIntent.currency.toUpperCase(),
+          description: paymentIntent.description || 'Payment received',
+          status: 'completed',
+          date: new Date(),
+          stripePaymentIntentId: paymentIntent.id,
+          customerName: paymentIntent.metadata?.customerName,
+          customerEmail: paymentIntent.metadata?.customerEmail,
+          paymentMethod: 'card',
+          cardLast4: paymentIntent.charges?.data?.[0]?.payment_method_details?.card?.last4,
+          cardBrand: paymentIntent.charges?.data?.[0]?.payment_method_details?.card?.brand,
+          metadata: JSON.stringify(paymentIntent.metadata || {}),
+        });
+
+        console.log(`💾 Created new transaction: ${transactionId}`);
+      }
+
+      console.log('Payment successful:', {
+        id: paymentIntent.id,
+        amount: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        metadata: paymentIntent.metadata,
+      });
+    } catch (error) {
+      console.error('❌ Error processing payment intent success:', error);
+    }
   }
 
   private static async handlePaymentIntentFailed(paymentIntent: any) {
     console.log('❌ Payment intent failed:', paymentIntent.id);
 
-    console.log('Payment failed:', {
-      id: paymentIntent.id,
-      amount: paymentIntent.amount,
-      currency: paymentIntent.currency,
-      last_payment_error: paymentIntent.last_payment_error,
-      metadata: paymentIntent.metadata,
-    });
+    try {
+      // Update transaction status to failed
+      const result = await db
+        .update(transactions)
+        .set({
+          status: 'failed',
+          updatedAt: new Date(),
+          notes: `Payment failed: ${paymentIntent.last_payment_error?.message || 'Unknown error'}`,
+        })
+        .where(eq(transactions.stripePaymentIntentId, paymentIntent.id));
+
+      if (result.rowCount && result.rowCount > 0) {
+        console.log(`✅ Updated transaction status to failed: ${paymentIntent.id}`);
+      }
+
+      console.log('Payment failed:', {
+        id: paymentIntent.id,
+        amount: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        last_payment_error: paymentIntent.last_payment_error,
+        metadata: paymentIntent.metadata,
+      });
+    } catch (error) {
+      console.error('❌ Error processing payment intent failure:', error);
+    }
   }
 
   private static async handleCheckoutSessionCompleted(session: any) {
