@@ -388,6 +388,97 @@ app.post("/api/stripe/account", async (c) => {
   }
 });
 
+// User synchronization endpoint for syncing authenticated users to backend DB
+app.post("/api/users/sync", async (c) => {
+  try {
+    const userData = await c.req.json();
+    console.log("🔄 User sync request:", userData);
+
+    const {
+      id,
+      email,
+      fullName,
+      firstName,
+      lastName,
+      authProvider,
+      memberSince,
+      appleUserId,
+      googleUserId,
+    } = userData;
+
+    if (!id || !authProvider || !memberSince) {
+      return c.json(
+        {
+          error: "Missing required fields: id, authProvider, memberSince",
+        },
+        400
+      );
+    }
+
+    // Check if user already exists
+    const existingUser = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
+
+    if (existingUser.length > 0) {
+      // Update existing user
+      await db
+        .update(users)
+        .set({
+          email: email || null,
+          fullName: fullName || null,
+          firstName: firstName || null,
+          lastName: lastName || null,
+          authProvider,
+          appleUserId: appleUserId || null,
+          googleUserId: googleUserId || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, id));
+
+      console.log(`✅ Updated existing user in backend: ${id}`);
+    } else {
+      // Create new user
+      await db.insert(users).values({
+        id,
+        email: email || null,
+        fullName: fullName || null,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        authProvider,
+        appleUserId: appleUserId || null,
+        googleUserId: googleUserId || null,
+        stripeAccountId: null,
+        stripeOnboardingCompleted: false,
+        memberSince: new Date(memberSince),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      console.log(`✅ Created new user in backend: ${id}`);
+    }
+
+    return c.json({
+      success: true,
+      message: "User synced successfully",
+      userId: id,
+    });
+  } catch (error) {
+    console.error("❌ User sync error:", error);
+    return c.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to sync user",
+      },
+      500
+    );
+  }
+});
+
 // Stripe Connect endpoint for updating onboarding completion status
 app.post("/api/stripe/complete-onboarding", async (c) => {
   try {
