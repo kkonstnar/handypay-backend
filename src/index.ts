@@ -136,7 +136,9 @@ app.post("/api/users/sync", async (c) => {
 
     return c.json({
       success: true,
-      message: `User ${existingUser.length > 0 ? 'updated' : 'created'} successfully`,
+      message: `User ${
+        existingUser.length > 0 ? "updated" : "created"
+      } successfully`,
       userId: id,
     });
   } catch (error) {
@@ -168,11 +170,7 @@ app.post("/api/stripe/create-account-link", async (c) => {
       email,
     } = requestData;
 
-    if (
-      !userId ||
-      !refresh_url ||
-      !return_url
-    ) {
+    if (!userId || !refresh_url || !return_url) {
       return c.json(
         {
           error: "Missing required fields: userId, refresh_url, return_url",
@@ -203,32 +201,37 @@ app.post("/api/stripe/create-account-link", async (c) => {
     // Create Stripe account and account link
     const result = await StripeService.createAccountLink({
       userId,
-      account_id: user.stripeAccountId,
+      account_id: user.stripeAccountId || undefined,
       refresh_url,
       return_url,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
+      firstName: user.firstName || "",
+      lastName: user.lastName || "",
+      email: user.email || "",
     });
 
     console.log("✅ Stripe account link created:", result);
 
     // Update user with Stripe account ID if it's a new account
-    if (result.account_id && (!user.stripeAccountId || user.stripeAccountId !== result.account_id)) {
+    if (
+      result.accountId &&
+      (!user.stripeAccountId || user.stripeAccountId !== result.accountId)
+    ) {
       await db
         .update(users)
         .set({
-          stripeAccountId: result.account_id,
+          stripeAccountId: result.accountId,
           updatedAt: new Date(),
         })
         .where(eq(users.id, userId));
 
-      console.log(`✅ Updated user ${userId} with Stripe account ID: ${result.account_id}`);
+      console.log(
+        `✅ Updated user ${userId} with Stripe account ID: ${result.accountId}`
+      );
     }
 
     return c.json({
       success: true,
-      account_id: result.account_id,
+      account_id: result.accountId,
       url: result.url,
       message: "Stripe account link created successfully",
     });
