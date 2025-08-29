@@ -36,6 +36,54 @@ app.get("/test-db", async (c) => {
   try {
     console.log("🧪 Testing database connection...");
 
+    // First, try a simple connection test without querying tables
+    try {
+      await db.execute("SELECT 1");
+      console.log("✅ Database connection successful");
+    } catch (connectionError) {
+      console.error("❌ Database connection failed:", connectionError);
+      return c.json(
+        {
+          success: false,
+          error: "Database connection failed",
+          details: connectionError instanceof Error ? connectionError.message : "Unknown error",
+        },
+        500
+      );
+    }
+
+    // Try to create table if it doesn't exist
+    try {
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          email TEXT,
+          full_name TEXT,
+          first_name TEXT,
+          last_name TEXT,
+          auth_provider TEXT NOT NULL,
+          apple_user_id TEXT,
+          google_user_id TEXT,
+          stripe_account_id TEXT,
+          stripe_onboarding_completed BOOLEAN DEFAULT FALSE,
+          member_since TIMESTAMP NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log("✅ Users table created or already exists");
+    } catch (tableError) {
+      console.error("❌ Table creation failed:", tableError);
+      return c.json(
+        {
+          success: false,
+          error: "Table creation failed",
+          details: tableError instanceof Error ? tableError.message : "Unknown error",
+        },
+        500
+      );
+    }
+
     // Test basic user lookup
     const testUserId = "test-user-123";
     const result = await db
@@ -46,7 +94,7 @@ app.get("/test-db", async (c) => {
 
     return c.json({
       success: true,
-      message: "Database connection successful",
+      message: "Database connection and table setup successful",
       testQueryResult: result.length,
     });
   } catch (error) {
@@ -54,7 +102,7 @@ app.get("/test-db", async (c) => {
     return c.json(
       {
         success: false,
-        error: "Database connection failed",
+        error: "Database query failed",
         details: error instanceof Error ? error.message : "Unknown error",
       },
       500
