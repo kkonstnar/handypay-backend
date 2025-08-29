@@ -38,15 +38,25 @@ app.get("/test-db", async (c) => {
 
     // First, try a simple connection test without querying tables
     try {
+      console.log("🔍 Testing basic database connection...");
       await db.execute("SELECT 1");
       console.log("✅ Database connection successful");
     } catch (connectionError) {
       console.error("❌ Database connection failed:", connectionError);
+      console.error("Error details:", {
+        message: connectionError instanceof Error ? connectionError.message : "Unknown error",
+        name: connectionError instanceof Error ? connectionError.name : "Unknown",
+        stack: connectionError instanceof Error ? connectionError.stack : "No stack",
+      });
       return c.json(
         {
           success: false,
           error: "Database connection failed",
-          details: connectionError instanceof Error ? connectionError.message : "Unknown error",
+          details:
+            connectionError instanceof Error
+              ? connectionError.message
+              : "Unknown error",
+          errorName: connectionError instanceof Error ? connectionError.name : "Unknown",
         },
         500
       );
@@ -78,7 +88,8 @@ app.get("/test-db", async (c) => {
         {
           success: false,
           error: "Table creation failed",
-          details: tableError instanceof Error ? tableError.message : "Unknown error",
+          details:
+            tableError instanceof Error ? tableError.message : "Unknown error",
         },
         500
       );
