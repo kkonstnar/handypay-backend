@@ -200,18 +200,45 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
       );
     }
 
-    // Update the user's onboarding completion status in the database
-    await db
-      .update(users)
-      .set({
-        stripeOnboardingCompleted: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, userId));
+    // First check if user exists in database
+    const existingUser = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
 
-    console.log(
-      `✅ Marked onboarding as completed for user ${userId} with account ${stripeAccountId}`
-    );
+    if (existingUser.length > 0) {
+      // User exists, update their onboarding completion status
+      await db
+        .update(users)
+        .set({
+          stripeAccountId: stripeAccountId,
+          stripeOnboardingCompleted: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId));
+
+      console.log(
+        `✅ Marked onboarding as completed for existing user ${userId} with account ${stripeAccountId}`
+      );
+    } else {
+      // User doesn't exist, create a minimal user record
+      await db
+        .insert(users)
+        .values({
+          id: userId,
+          stripeAccountId: stripeAccountId,
+          stripeOnboardingCompleted: true,
+          authProvider: 'unknown', // We'll need to update this when we know
+          memberSince: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+
+      console.log(
+        `✅ Created new user record and marked onboarding as completed for user ${userId} with account ${stripeAccountId}`
+      );
+    }
 
     return c.json({
       success: true,
