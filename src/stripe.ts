@@ -415,4 +415,109 @@ export class StripeService {
       throw error;
     }
   }
+
+  static async handleWebhook(rawBody: string, signature: string) {
+    try {
+      const event = stripe.webhooks.constructEvent(
+        rawBody,
+        signature,
+        process.env.STRIPE_WEBHOOK_SECRET!
+      );
+
+      console.log(`🎣 Webhook received: ${event.type}`);
+
+      switch (event.type) {
+        case 'payment_intent.succeeded':
+          await this.handlePaymentIntentSucceeded(event.data.object);
+          break;
+
+        case 'payment_intent.payment_failed':
+          await this.handlePaymentIntentFailed(event.data.object);
+          break;
+
+        case 'checkout.session.completed':
+          await this.handleCheckoutSessionCompleted(event.data.object);
+          break;
+
+        case 'invoice.payment_succeeded':
+          await this.handleInvoicePaymentSucceeded(event.data.object);
+          break;
+
+        case 'invoice.payment_failed':
+          await this.handleInvoicePaymentFailed(event.data.object);
+          break;
+
+        default:
+          console.log(`Unhandled webhook event: ${event.type}`);
+      }
+
+      return { received: true };
+    } catch (error) {
+      console.error('❌ Webhook error:', error);
+      throw error;
+    }
+  }
+
+  private static async handlePaymentIntentSucceeded(paymentIntent: any) {
+    console.log('💰 Payment intent succeeded:', paymentIntent.id);
+
+    // Update transaction status in database
+    // This would typically update a transactions table
+    // For now, we'll just log the event
+    console.log('Payment successful:', {
+      id: paymentIntent.id,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      metadata: paymentIntent.metadata,
+    });
+  }
+
+  private static async handlePaymentIntentFailed(paymentIntent: any) {
+    console.log('❌ Payment intent failed:', paymentIntent.id);
+
+    console.log('Payment failed:', {
+      id: paymentIntent.id,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      last_payment_error: paymentIntent.last_payment_error,
+      metadata: paymentIntent.metadata,
+    });
+  }
+
+  private static async handleCheckoutSessionCompleted(session: any) {
+    console.log('✅ Checkout session completed:', session.id);
+
+    console.log('Checkout completed:', {
+      id: session.id,
+      payment_status: session.payment_status,
+      amount_total: session.amount_total,
+      currency: session.currency,
+      metadata: session.metadata,
+    });
+  }
+
+  private static async handleInvoicePaymentSucceeded(invoice: any) {
+    console.log('💳 Invoice payment succeeded:', invoice.id);
+
+    console.log('Invoice payment successful:', {
+      id: invoice.id,
+      amount_paid: invoice.amount_paid,
+      currency: invoice.currency,
+      customer_email: invoice.customer_email,
+      metadata: invoice.metadata,
+    });
+  }
+
+  private static async handleInvoicePaymentFailed(invoice: any) {
+    console.log('❌ Invoice payment failed:', invoice.id);
+
+    console.log('Invoice payment failed:', {
+      id: invoice.id,
+      amount_due: invoice.amount_due,
+      currency: invoice.currency,
+      customer_email: invoice.customer_email,
+      attempt_count: invoice.attempt_count,
+      metadata: invoice.metadata,
+    });
+  }
 }

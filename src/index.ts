@@ -493,6 +493,84 @@ app.post("/api/stripe/expire-payment-link", async (c) => {
   }
 });
 
+// Stripe webhook endpoint
+app.post("/api/stripe/webhook", async (c) => {
+  try {
+    const rawBody = await c.req.text();
+    const signature = c.req.header('stripe-signature');
+
+    if (!signature) {
+      console.error('❌ No Stripe signature provided');
+      return c.json({ error: 'No signature' }, 400);
+    }
+
+    console.log('🎣 Processing Stripe webhook...');
+
+    const result = await StripeService.handleWebhook(rawBody, signature);
+
+    return c.json(result, 200);
+  } catch (error) {
+    console.error('❌ Webhook processing error:', error);
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : 'Webhook processing failed'
+      },
+      400
+    );
+  }
+});
+
+// Get payment status endpoint
+app.get("/api/stripe/payment-status/:paymentIntentId", async (c) => {
+  try {
+    const paymentIntentId = c.req.param("paymentIntentId");
+
+    if (!paymentIntentId) {
+      return c.json({ error: "Missing paymentIntentId parameter" }, 400);
+    }
+
+    console.log("📊 Getting payment status for:", paymentIntentId);
+
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+    return c.json({
+      id: paymentIntent.id,
+      status: paymentIntent.status,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      metadata: paymentIntent.metadata,
+    });
+  } catch (error) {
+    console.error("❌ Payment status error:", error);
+    return c.json({ error: "Failed to get payment status" }, 500);
+  }
+});
+
+// Refresh transaction status endpoint
+app.post("/api/stripe/refresh-transaction", async (c) => {
+  try {
+    const { transactionId, userId } = await c.req.json();
+
+    if (!transactionId || !userId) {
+      return c.json({ error: "Missing required fields: transactionId, userId" }, 400);
+    }
+
+    console.log("🔄 Refreshing transaction status for:", transactionId, "user:", userId);
+
+    // For now, just return success - in a real implementation,
+    // this would check the latest status from Stripe and update the database
+    return c.json({
+      success: true,
+      message: "Transaction status refreshed",
+      transactionId,
+      userId,
+    });
+  } catch (error) {
+    console.error("❌ Transaction refresh error:", error);
+    return c.json({ error: "Failed to refresh transaction" }, 500);
+  }
+});
+
 // Stripe account status endpoint
 // GET endpoint for account status (frontend compatibility)
 app.get("/api/stripe/account-status/:accountId", async (c) => {
