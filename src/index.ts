@@ -186,6 +186,10 @@ app.post("/api/users/sync", async (c) => {
   try {
     const userData = await c.req.json();
     console.log("🔄 User sync request:", userData);
+    console.log("🔄 Stripe data:", {
+      stripeAccountId: userData.stripeAccountId,
+      stripeOnboardingCompleted: userData.stripeOnboardingCompleted,
+    });
 
     const {
       id,
@@ -236,6 +240,10 @@ app.post("/api/users/sync", async (c) => {
         .where(eq(users.id, id));
 
       console.log(`✅ Updated existing user in backend: ${id}`);
+      console.log(`✅ Stripe data saved:`, {
+        stripeAccountId: stripeAccountId,
+        stripeOnboardingCompleted: stripeOnboardingCompleted,
+      });
     } else {
       // Create new user
       await db.insert(users).values({
@@ -255,6 +263,10 @@ app.post("/api/users/sync", async (c) => {
       });
 
       console.log(`✅ Created new user in backend: ${id}`);
+      console.log(`✅ Stripe data saved:`, {
+        stripeAccountId: stripeAccountId,
+        stripeOnboardingCompleted: stripeOnboardingCompleted,
+      });
     }
 
     return c.json({
