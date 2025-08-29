@@ -197,11 +197,13 @@ app.post("/api/users/sync", async (c) => {
       memberSince,
       appleUserId,
       googleUserId,
+      stripeAccountId,
+      stripeOnboardingCompleted,
     } = userData;
 
     if (!id || !authProvider || !memberSince) {
-      return c.json(
-        {
+    return c.json(
+      {
           error: "Missing required fields: id, authProvider, memberSince",
         },
         400
@@ -227,6 +229,8 @@ app.post("/api/users/sync", async (c) => {
           authProvider,
           appleUserId: appleUserId || null,
           googleUserId: googleUserId || null,
+          stripeAccountId: stripeAccountId || null,
+          stripeOnboardingCompleted: stripeOnboardingCompleted || false,
           updatedAt: new Date(),
         })
         .where(eq(users.id, id));
@@ -243,8 +247,8 @@ app.post("/api/users/sync", async (c) => {
         authProvider,
         appleUserId: appleUserId || null,
         googleUserId: googleUserId || null,
-        stripeAccountId: null,
-        stripeOnboardingCompleted: false,
+        stripeAccountId: stripeAccountId || null,
+        stripeOnboardingCompleted: stripeOnboardingCompleted || false,
         memberSince: new Date(memberSince),
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -439,7 +443,12 @@ app.post("/api/stripe/cancel-payment-link", async (c) => {
       );
     }
 
-    console.log("🗑️ Cancelling payment link:", paymentLinkId, "for user:", userId);
+    console.log(
+      "🗑️ Cancelling payment link:",
+      paymentLinkId,
+      "for user:",
+      userId
+    );
 
     const result = await StripeService.cancelPaymentLink(paymentLinkId, userId);
 
@@ -452,7 +461,10 @@ app.post("/api/stripe/cancel-payment-link", async (c) => {
     return c.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to cancel payment link",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to cancel payment link",
       },
       500
     );
@@ -473,7 +485,12 @@ app.post("/api/stripe/expire-payment-link", async (c) => {
       );
     }
 
-    console.log("⏰ Expiring payment link:", paymentLinkId, "for user:", userId);
+      console.log(
+      "⏰ Expiring payment link:",
+      paymentLinkId,
+      "for user:",
+      userId
+    );
 
     const result = await StripeService.expirePaymentLink(paymentLinkId, userId);
 
@@ -486,7 +503,10 @@ app.post("/api/stripe/expire-payment-link", async (c) => {
     return c.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to expire payment link",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to expire payment link",
       },
       500
     );
@@ -497,23 +517,24 @@ app.post("/api/stripe/expire-payment-link", async (c) => {
 app.post("/api/stripe/webhook", async (c) => {
   try {
     const rawBody = await c.req.text();
-    const signature = c.req.header('stripe-signature');
+    const signature = c.req.header("stripe-signature");
 
     if (!signature) {
-      console.error('❌ No Stripe signature provided');
-      return c.json({ error: 'No signature' }, 400);
+      console.error("❌ No Stripe signature provided");
+      return c.json({ error: "No signature" }, 400);
     }
 
-    console.log('🎣 Processing Stripe webhook...');
+    console.log("🎣 Processing Stripe webhook...");
 
     const result = await StripeService.handleWebhook(rawBody, signature);
 
     return c.json(result, 200);
   } catch (error) {
-    console.error('❌ Webhook processing error:', error);
+    console.error("❌ Webhook processing error:", error);
     return c.json(
       {
-        error: error instanceof Error ? error.message : 'Webhook processing failed'
+        error:
+          error instanceof Error ? error.message : "Webhook processing failed",
       },
       400
     );
@@ -552,10 +573,18 @@ app.post("/api/stripe/refresh-transaction", async (c) => {
     const { transactionId, userId } = await c.req.json();
 
     if (!transactionId || !userId) {
-      return c.json({ error: "Missing required fields: transactionId, userId" }, 400);
+      return c.json(
+        { error: "Missing required fields: transactionId, userId" },
+        400
+      );
     }
 
-    console.log("🔄 Refreshing transaction status for:", transactionId, "user:", userId);
+    console.log(
+      "🔄 Refreshing transaction status for:",
+      transactionId,
+      "user:",
+      userId
+    );
 
     // For now, just return success - in a real implementation,
     // this would check the latest status from Stripe and update the database
@@ -589,7 +618,7 @@ app.get("/api/transactions/:userId", async (c) => {
       .orderBy(desc(transactions.createdAt));
 
     // Transform to match frontend interface
-    const formattedTransactions = userTransactions.map(tx => ({
+    const formattedTransactions = userTransactions.map((tx) => ({
       id: tx.id,
       type: tx.type,
       amount: tx.amount,
@@ -612,7 +641,7 @@ app.get("/api/transactions/:userId", async (c) => {
       success: true,
       transactions: formattedTransactions,
     });
-  } catch (error) {
+        } catch (error) {
     console.error("❌ Transactions error:", error);
     return c.json({ error: "Failed to get transactions" }, 500);
   }
@@ -624,10 +653,18 @@ app.post("/api/transactions/cancel", async (c) => {
     const { transactionId, userId } = await c.req.json();
 
     if (!transactionId || !userId) {
-      return c.json({ error: "Missing required fields: transactionId, userId" }, 400);
+      return c.json(
+        { error: "Missing required fields: transactionId, userId" },
+        400
+      );
     }
 
-    console.log("🗑️ Cancelling transaction:", transactionId, "for user:", userId);
+    console.log(
+      "🗑️ Cancelling transaction:",
+      transactionId,
+      "for user:",
+      userId
+    );
 
     // Get transaction details
     const transaction = await db
@@ -648,16 +685,16 @@ app.post("/api/transactions/cancel", async (c) => {
     }
 
     // Handle payment link cancellation
-    if (tx.stripePaymentLinkId && tx.status === 'pending') {
+    if (tx.stripePaymentLinkId && tx.status === "pending") {
       await StripeService.cancelPaymentLink(tx.stripePaymentLinkId, userId);
     } else {
       // Update transaction status directly
       await db
         .update(transactions)
         .set({
-          status: 'cancelled',
+          status: "cancelled",
           updatedAt: new Date(),
-          notes: 'Transaction cancelled by user',
+          notes: "Transaction cancelled by user",
         })
         .where(eq(transactions.id, transactionId));
     }
@@ -668,14 +705,17 @@ app.post("/api/transactions/cancel", async (c) => {
     });
   } catch (error) {
     console.error("❌ Transaction cancellation error:", error);
-    return c.json(
-      {
+      return c.json(
+        {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to cancel transaction",
-      },
-      500
-    );
-  }
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to cancel transaction",
+        },
+        500
+      );
+    }
 });
 
 // Stripe account status endpoint
