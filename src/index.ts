@@ -71,13 +71,19 @@ app.post("/test-google-token", async (c) => {
     const { testCode } = await c.req.json();
 
     if (!testCode) {
-      return c.json({
-        error: "Test code required",
-        suggestion: "Use a real OAuth code from Google to test"
-      }, 400);
+      return c.json(
+        {
+          error: "Test code required",
+          suggestion: "Use a real OAuth code from Google to test",
+        },
+        400
+      );
     }
 
-    console.log("Testing Google token exchange with code:", testCode.substring(0, 20) + "...");
+    console.log(
+      "Testing Google token exchange with code:",
+      testCode.substring(0, 20) + "..."
+    );
 
     // This will show us exactly what happens during token exchange
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
@@ -90,7 +96,8 @@ app.post("/test-google-token", async (c) => {
         client_secret: process.env.GOOGLE_CLIENT_SECRET!,
         code: testCode,
         grant_type: "authorization_code",
-        redirect_uri: "https://handypay-backend.onrender.com/auth/google/callback",
+        redirect_uri:
+          "https://handypay-backend.onrender.com/auth/google/callback",
       }),
     });
 
@@ -103,16 +110,19 @@ app.post("/test-google-token", async (c) => {
       requestDetails: {
         clientIdConfigured: !!process.env.GOOGLE_CLIENT_ID,
         clientSecretConfigured: !!process.env.GOOGLE_CLIENT_SECRET,
-        redirectUri: "https://handypay-backend.onrender.com/auth/google/callback"
-      }
+        redirectUri:
+          "https://handypay-backend.onrender.com/auth/google/callback",
+      },
     });
-
   } catch (error) {
     console.error("Google token test error:", error);
-    return c.json({
-      error: "Token test failed",
-      details: error instanceof Error ? error.message : "Unknown error"
-    }, 500);
+    return c.json(
+      {
+        error: "Token test failed",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      500
+    );
   }
 });
 
@@ -741,14 +751,37 @@ app.get("/auth/google/callback", async (c) => {
 // Simple Google OAuth token exchange (non-PKCE)
 app.post("/auth/google/token", async (c) => {
   try {
-    const { code, provider, redirectUri } = await c.req.json();
+    // Log all request details for debugging
+    console.log("=== GOOGLE TOKEN EXCHANGE REQUEST RECEIVED ===");
+    console.log("Method:", c.req.method);
+    console.log("URL:", c.req.url);
+    console.log("Headers:", Object.fromEntries(c.req.raw.headers.entries()));
+    console.log("Content-Type:", c.req.header("content-type"));
+    console.log("User-Agent:", c.req.header("user-agent"));
+    console.log("Origin:", c.req.header("origin"));
 
-    console.log(`${provider} token exchange request received`);
+    const rawBody = await c.req.text();
+    console.log("Raw request body:", rawBody.substring(0, 300) + "...");
+
+    let parsedBody;
+    try {
+      parsedBody = JSON.parse(rawBody);
+    } catch (parseError) {
+      console.error("❌ Failed to parse request body as JSON:", parseError);
+      console.error("Raw body that failed to parse:", rawBody);
+      return c.json({
+        error: "Invalid JSON in request body",
+        details: parseError instanceof Error ? parseError.message : "Parse error",
+        receivedBody: rawBody.substring(0, 100)
+      }, 400);
+    }
+
+    const { code, provider, redirectUri } = parsedBody;
+
+    console.log(`✅ ${provider || 'unknown'} token exchange request parsed successfully`);
     console.log("Redirect URI:", redirectUri);
-    console.log(
-      "Code received:",
-      code ? code.substring(0, 20) + "..." : "null"
-    );
+    console.log("Code received:", code ? code.substring(0, 20) + "..." : "null");
+    console.log("Code length:", code?.length || 0);
     console.log("Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
     console.log("Client Secret available:", !!process.env.GOOGLE_CLIENT_SECRET);
 
