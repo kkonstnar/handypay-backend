@@ -718,6 +718,36 @@ app.post("/api/transactions/cancel", async (c) => {
     }
 });
 
+// Debug endpoint to manually update user Stripe account
+app.post("/api/debug/update-stripe-account", async (c) => {
+  try {
+    const { userId, stripeAccountId } = await c.req.json();
+
+    console.log(`🔧 Manually updating user ${userId} with Stripe account ${stripeAccountId}`);
+
+    const result = await db
+      .update(users)
+      .set({
+        stripeAccountId: stripeAccountId,
+        stripeOnboardingCompleted: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    console.log(`✅ Update result:`, result);
+
+    return c.json({
+      success: true,
+      message: "User Stripe account updated",
+      userId,
+      stripeAccountId,
+    });
+  } catch (error) {
+    console.error("❌ Debug update error:", error);
+    return c.json({ error: "Failed to update user" }, 500);
+  }
+});
+
 // Stripe account status endpoint
 // GET endpoint for account status (frontend compatibility)
 app.get("/api/stripe/account-status/:accountId", async (c) => {
