@@ -32,92 +32,13 @@ app.get("/", (c) => {
 });
 
 // Database test endpoint
+// Simple database test
 app.get("/test-db", async (c) => {
   try {
-    console.log("🧪 Testing database connection...");
-
-    // First, try a simple connection test without querying tables
-    try {
-      console.log("🔍 Testing basic database connection...");
-      await db.execute("SELECT 1");
-      console.log("✅ Database connection successful");
-    } catch (connectionError) {
-      console.error("❌ Database connection failed:", connectionError);
-      console.error("Error details:", {
-        message: connectionError instanceof Error ? connectionError.message : "Unknown error",
-        name: connectionError instanceof Error ? connectionError.name : "Unknown",
-        stack: connectionError instanceof Error ? connectionError.stack : "No stack",
-      });
-      return c.json(
-        {
-          success: false,
-          error: "Database connection failed",
-          details:
-            connectionError instanceof Error
-              ? connectionError.message
-              : "Unknown error",
-          errorName: connectionError instanceof Error ? connectionError.name : "Unknown",
-        },
-        500
-      );
-    }
-
-    // Try to create table if it doesn't exist
-    try {
-      await db.execute(`
-        CREATE TABLE IF NOT EXISTS users (
-          id TEXT PRIMARY KEY,
-          email TEXT,
-          full_name TEXT,
-          first_name TEXT,
-          last_name TEXT,
-          auth_provider TEXT NOT NULL,
-          apple_user_id TEXT,
-          google_user_id TEXT,
-          stripe_account_id TEXT,
-          stripe_onboarding_completed BOOLEAN DEFAULT FALSE,
-          member_since TIMESTAMP NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      console.log("✅ Users table created or already exists");
-    } catch (tableError) {
-      console.error("❌ Table creation failed:", tableError);
-      return c.json(
-        {
-          success: false,
-          error: "Table creation failed",
-          details:
-            tableError instanceof Error ? tableError.message : "Unknown error",
-        },
-        500
-      );
-    }
-
-    // Test basic user lookup
-    const testUserId = "test-user-123";
-    const result = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, testUserId))
-      .limit(1);
-
-    return c.json({
-      success: true,
-      message: "Database connection and table setup successful",
-      testQueryResult: result.length,
-    });
+    await db.execute("SELECT 1");
+    return c.json({ success: true, message: "Database connected" });
   } catch (error) {
-    console.error("Database test error:", error);
-    return c.json(
-      {
-        success: false,
-        error: "Database query failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      500
-    );
+    return c.json({ success: false, error: "Database not connected" }, 500);
   }
 });
 
@@ -148,16 +69,7 @@ app.post("/api/users/sync", async (c) => {
       );
     }
 
-    // Check if database is connected
-    try {
-      await db.execute("SELECT 1");
-    } catch (dbError) {
-      console.error("❌ Database not connected:", dbError);
-      return c.json({
-        error: "Database connection failed",
-        message: "Please check database configuration and try again later"
-      }, 503);
-    }
+
 
     // Check if user already exists
     const existingUser = await db
