@@ -5,6 +5,8 @@ import { cors } from "hono/cors";
 import { auth } from "./auth.js";
 import { StripeService } from "./stripe.js";
 import { db } from "./db.js";
+import { users } from "./schema.js";
+import { eq } from "drizzle-orm";
 
 const app = new Hono();
 

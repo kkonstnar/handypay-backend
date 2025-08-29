@@ -12,36 +12,12 @@ export class StripeService {
         }
         try {
             console.log("Creating Stripe account link for user:", userId);
-            // Try to use supplied account_id, else fall back to database value
             let accountId = account_id;
-            if (!accountId) {
-                try {
-                    const existing = await db
-                        .select({ stripeAccountId: users.stripeAccountId })
-                        .from(users)
-                        .where(eq(users.id, userId))
-                        .limit(1);
-                    if (existing.length && existing[0].stripeAccountId) {
-                        accountId = existing[0].stripeAccountId;
-                    }
-                }
-                catch (err) {
-                    console.error("DB lookup error for stripeAccountId:", err);
-                }
-            }
             let account;
-            if (accountId) {
-                // Update existing account details (or just retrieve if no changes required)
-                account = await stripe.accounts.update(accountId, {
-                    email,
-                    business_profile: {
-                        name: `${firstName} ${lastName}`.trim() || "HandyPay Merchant",
-                        support_email: email,
-                    },
-                    metadata: { userId },
-                });
-            }
-            else {
+            // Always create new account if no account_id provided
+            // This ensures we always have an account to work with
+            if (!accountId) {
+                console.log("Creating new Stripe account for user:", userId);
                 // Create new account for Jamaica (JM) with JMD currency
                 account = await stripe.accounts.create({
                     type: "custom",
@@ -70,19 +46,47 @@ export class StripeService {
                     },
                     default_currency: "JMD",
                 });
-                // Save newly created accountId for later use
                 accountId = account.id;
+                console.log(`✅ Created new Stripe account: ${accountId} for user ${userId}`);
             }
-            // Persist the Stripe account ID in the database
+            else {
+                console.log("Using existing Stripe account:", accountId);
+                // Update existing account details
+                account = await stripe.accounts.update(accountId, {
+                    email,
+                    business_profile: {
+                        name: `${firstName} ${lastName}`.trim() || "HandyPay Merchant",
+                        support_email: email,
+                    },
+                    metadata: { userId },
+                });
+            }
+            // Try to save the Stripe account ID to database (don't fail if user doesn't exist yet)
             if (accountId) {
                 try {
-                    await db
-                        .update(users)
-                        .set({ stripeAccountId: accountId, updatedAt: new Date() })
-                        .where(eq(users.id, userId));
+                    // First check if user exists
+                    const existingUser = await db
+                        .select({ id: users.id })
+                        .from(users)
+                        .where(eq(users.id, userId))
+                        .limit(1);
+                    if (existingUser.length > 0) {
+                        await db
+                            .update(users)
+                            .set({
+                            stripeAccountId: accountId,
+                            updatedAt: new Date(),
+                        })
+                            .where(eq(users.id, userId));
+                        console.log(`✅ Saved Stripe account ID ${accountId} for existing user ${userId}`);
+                    }
+                    else {
+                        console.log(`⚠️ User ${userId} not found in database, skipping DB update`);
+                    }
                 }
                 catch (err) {
                     console.error("Error saving stripeAccountId to DB:", err);
+                    console.log("Continuing with account creation despite DB error...");
                 }
             }
             // Create account link for onboarding

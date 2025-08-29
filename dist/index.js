@@ -4,6 +4,9 @@ import { serve } from "@hono/node-server";
 import { cors } from "hono/cors";
 import { auth } from "./auth.js";
 import { StripeService } from "./stripe.js";
+import { db } from "./db.js";
+import { users } from "./schema.js";
+import { eq } from "drizzle-orm";
 const app = new Hono();
 // CORS middleware first
 app.use("*", cors({
@@ -131,6 +134,40 @@ app.get("/api/stripe/user-account/:userId", async (c) => {
             error: error instanceof Error
                 ? error.message
                 : "Failed to retrieve user Stripe account",
+        }, 500);
+    }
+});
+// Stripe Connect endpoint for updating onboarding completion status
+app.post("/api/stripe/complete-onboarding", async (c) => {
+    try {
+        const requestData = await c.req.json();
+        console.log("Stripe onboarding completion request:", requestData);
+        const { userId, stripeAccountId } = requestData;
+        if (!userId || !stripeAccountId) {
+            return c.json({
+                error: "Missing required fields: userId, stripeAccountId",
+            }, 400);
+        }
+        // Update the user's onboarding completion status in the database
+        await db
+            .update(users)
+            .set({
+            stripeOnboardingCompleted: true,
+            updatedAt: new Date(),
+        })
+            .where(eq(users.id, userId));
+        console.log(`✅ Marked onboarding as completed for user ${userId} with account ${stripeAccountId}`);
+        return c.json({
+            success: true,
+            message: "Onboarding completion status updated successfully",
+        });
+    }
+    catch (error) {
+        console.error("Stripe onboarding completion error:", error);
+        return c.json({
+            error: error instanceof Error
+                ? error.message
+                : "Failed to update onboarding completion status",
         }, 500);
     }
 });
@@ -414,19 +451,22 @@ app.get("/auth/google/callback", async (c) => {
         console.error("Google OAuth error:", error);
         redirectUrl = `handypay://google/error?error=${encodeURIComponent(error)}`;
         pageTitle = "Authentication Error";
-        pageMessage = "There was an error with Google authentication. Redirecting back to HandyPay...";
+        pageMessage =
+            "There was an error with Google authentication. Redirecting back to HandyPay...";
     }
     else if (code) {
         console.log("Google OAuth success, redirecting to app with code");
-        redirectUrl = `handypay://google/success?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}`;
+        redirectUrl = `handypay://google/success?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || "")}`;
         pageTitle = "Authentication Successful";
-        pageMessage = "Google authentication successful! Redirecting back to HandyPay...";
+        pageMessage =
+            "Google authentication successful! Redirecting back to HandyPay...";
     }
     else {
         console.error("Google OAuth callback missing code and error");
         redirectUrl = `handypay://google/error?error=invalid_request`;
         pageTitle = "Authentication Error";
-        pageMessage = "Invalid authentication response. Redirecting back to HandyPay...";
+        pageMessage =
+            "Invalid authentication response. Redirecting back to HandyPay...";
     }
     const html = `
   <!DOCTYPE html>
@@ -549,7 +589,9 @@ app.post("/auth/google/token", async (c) => {
             return c.json({ error: "Token exchange failed" }, 400);
         }
         const tokens = await tokenResponse.json();
-        console.log("Google tokens received:", { access_token: !!tokens.access_token });
+        console.log("Google tokens received:", {
+            access_token: !!tokens.access_token,
+        });
         // Get user info from Google
         const userResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
             headers: {
@@ -561,7 +603,10 @@ app.post("/auth/google/token", async (c) => {
             return c.json({ error: "Failed to get user info" }, 400);
         }
         const userInfo = await userResponse.json();
-        console.log("Google user info:", { id: userInfo.id, email: userInfo.email });
+        console.log("Google user info:", {
+            id: userInfo.id,
+            email: userInfo.email,
+        });
         // Return user data to mobile app
         return c.json({
             user: {
