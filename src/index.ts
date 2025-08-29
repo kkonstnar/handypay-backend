@@ -75,6 +75,7 @@ app.post("/api/users/sync", async (c) => {
       authProvider,
       memberSince,
       appleUserId,
+      googleUserId,
     } = userData;
 
     if (!id || !authProvider || !memberSince) {
@@ -104,6 +105,7 @@ app.post("/api/users/sync", async (c) => {
           lastName: lastName || null,
           authProvider,
           appleUserId: appleUserId || null,
+          googleUserId: googleUserId || null,
           updatedAt: new Date(),
         })
         .where(eq(users.id, id));
@@ -119,6 +121,7 @@ app.post("/api/users/sync", async (c) => {
         lastName: lastName || null,
         authProvider,
         appleUserId: appleUserId || null,
+        googleUserId: googleUserId || null,
         stripeAccountId: null,
         stripeOnboardingCompleted: false,
         memberSince: new Date(memberSince),

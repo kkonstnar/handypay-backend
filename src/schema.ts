@@ -8,6 +8,7 @@ export const users = pgTable("users", {
   lastName: text("last_name"),
   authProvider: text("auth_provider").notNull(),
   appleUserId: text("apple_user_id"),
+  googleUserId: text("google_user_id"), // Keep for backward compatibility
   stripeAccountId: text("stripe_account_id"), // Added for Stripe Connect
   stripeOnboardingCompleted: boolean("stripe_onboarding_completed").default(
     false
