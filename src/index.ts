@@ -27,15 +27,9 @@ app.get("/", (c) => {
     message: "HandyPay Auth Server is running!",
     auth: !!auth,
     env: {
-      hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
-      hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
       hasBetterAuthUrl: !!process.env.BETTER_AUTH_URL,
       hasBetterAuthSecret: !!process.env.BETTER_AUTH_SECRET,
       hasDatabaseUrl: !!process.env.DATABASE_URL,
-      // Add partial client ID for debugging (first 20 chars)
-      googleClientIdPartial: process.env.GOOGLE_CLIENT_ID
-        ? process.env.GOOGLE_CLIENT_ID.substring(0, 20) + "..."
-        : "not set",
     },
   });
 });
@@ -81,91 +75,9 @@ app.get("/test-db", async (c) => {
   }
 });
 
-// Test Google OAuth configuration
-app.get("/test-google-config", async (c) => {
-  try {
-    console.log("Testing Google OAuth configuration...");
 
-    return c.json({
-      clientId: process.env.GOOGLE_CLIENT_ID
-        ? process.env.GOOGLE_CLIENT_ID.substring(0, 20) + "..."
-        : "not set",
-      hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
-      hasClientId: !!process.env.GOOGLE_CLIENT_ID,
-      redirectUri: "https://handypay-backend.onrender.com/auth/google/callback",
-      environmentCheck: {
-        NODE_ENV: process.env.NODE_ENV,
-        hasGoogleCredentials: !!(
-          process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-        ),
-      },
-    });
-  } catch (error) {
-    console.error("Google config test error:", error);
-    return c.json({ error: "Failed to check Google config" }, 500);
-  }
-});
 
-// Test Google OAuth token validation
-app.post("/test-google-token", async (c) => {
-  try {
-    const { testCode } = await c.req.json();
 
-    if (!testCode) {
-      return c.json(
-        {
-          error: "Test code required",
-          suggestion: "Use a real OAuth code from Google to test",
-        },
-        400
-      );
-    }
-
-    console.log(
-      "Testing Google token exchange with code:",
-      testCode.substring(0, 20) + "..."
-    );
-
-    // This will show us exactly what happens during token exchange
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID!,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        code: testCode,
-        grant_type: "authorization_code",
-        redirect_uri:
-          "https://handypay-backend.onrender.com/auth/google/callback",
-      }),
-    });
-
-    const responseText = await tokenResponse.text();
-
-    return c.json({
-      status: tokenResponse.status,
-      success: tokenResponse.ok,
-      response: tokenResponse.ok ? JSON.parse(responseText) : responseText,
-      requestDetails: {
-        clientIdConfigured: !!process.env.GOOGLE_CLIENT_ID,
-        clientSecretConfigured: !!process.env.GOOGLE_CLIENT_SECRET,
-        redirectUri:
-          "https://handypay-backend.onrender.com/auth/google/callback",
-      },
-    });
-  } catch (error) {
-    console.error("Google token test error:", error);
-    return c.json(
-      {
-        error: "Token test failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      500
-    );
-  }
-});
 
 // Test route to check Better Auth initialization
 app.get("/test-auth", async (c) => {
@@ -819,8 +731,8 @@ app.get("/stripe/refresh", async (c) => {
   return c.html(html);
 });
 
-// Google OAuth callback endpoint
-app.get("/auth/google/callback", async (c) => {
+// Simple Google OAuth token exchange (non-PKCE)
+app.post("/auth/google/token", async (c) => {
   const code = c.req.query("code");
   const error = c.req.query("error");
   const state = c.req.query("state");
