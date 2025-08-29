@@ -662,8 +662,27 @@ app.post("/auth/google/token", async (c) => {
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
-      console.error("Google token exchange failed:", errorText);
-      return c.json({ error: "Token exchange failed" }, 400);
+      console.error("Google token exchange failed - Status:", tokenResponse.status);
+      console.error("Google token exchange failed - Response:", errorText);
+      console.error("Google token exchange failed - Request details:", {
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        redirect_uri: "https://handypay-backend.onrender.com/auth/google/callback",
+        code: code.substring(0, 20) + "...",
+        hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET
+      });
+      
+      let parsedError;
+      try {
+        parsedError = JSON.parse(errorText);
+      } catch {
+        parsedError = errorText;
+      }
+      
+      return c.json({ 
+        error: "Token exchange failed",
+        details: parsedError,
+        status: tokenResponse.status
+      }, 400);
     }
 
     const tokens = await tokenResponse.json();
