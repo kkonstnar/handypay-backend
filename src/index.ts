@@ -148,6 +148,17 @@ app.post("/api/users/sync", async (c) => {
       );
     }
 
+    // Check if database is connected
+    try {
+      await db.execute("SELECT 1");
+    } catch (dbError) {
+      console.error("❌ Database not connected:", dbError);
+      return c.json({
+        error: "Database connection failed",
+        message: "Please check database configuration and try again later"
+      }, 503);
+    }
+
     // Check if user already exists
     const existingUser = await db
       .select({ id: users.id })
