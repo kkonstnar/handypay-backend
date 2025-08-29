@@ -42,6 +42,44 @@ app.get("/test-db", async (c) => {
   }
 });
 
+// Stripe onboarding return endpoint
+app.get("/stripe/return", async (c) => {
+  const accountId = c.req.query("account");
+  const error = c.req.query("error");
+
+  console.log("🎉 Stripe onboarding return:", { accountId, error });
+
+  if (error) {
+    console.error("❌ Stripe onboarding error:", error);
+    // Redirect back to app with error
+    return c.redirect(`handypay://stripe/error?error=${encodeURIComponent(error)}`);
+  }
+
+  if (accountId) {
+    console.log("✅ Stripe account completed:", accountId);
+    // Redirect back to app with success
+    return c.redirect(`handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`);
+  }
+
+  // Default redirect
+  return c.redirect("handypay://stripe/complete");
+});
+
+// Stripe onboarding refresh endpoint
+app.get("/stripe/refresh", async (c) => {
+  const accountId = c.req.query("account");
+
+  console.log("🔄 Stripe onboarding refresh:", { accountId });
+
+  if (accountId) {
+    // Redirect back to app to restart onboarding
+    return c.redirect(`handypay://stripe/refresh?accountId=${encodeURIComponent(accountId)}`);
+  }
+
+  // Default refresh redirect
+  return c.redirect("handypay://stripe/refresh");
+});
+
 // User synchronization endpoint for syncing authenticated users to backend DB
 app.post("/api/users/sync", async (c) => {
   try {
@@ -68,8 +106,6 @@ app.post("/api/users/sync", async (c) => {
         400
       );
     }
-
-
 
     // Check if user already exists
     const existingUser = await db
