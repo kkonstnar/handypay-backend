@@ -38,6 +38,22 @@ app.get("/", (c) => {
   });
 });
 
+// Test Google OAuth configuration
+app.get("/test-google-config", async (c) => {
+  try {
+    console.log("Testing Google OAuth configuration...");
+    
+    return c.json({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      redirectUri: "https://handypay-backend.onrender.com/auth/google/callback"
+    });
+  } catch (error) {
+    console.error("Google config test error:", error);
+    return c.json({ error: "Failed to check Google config" }, 500);
+  }
+});
+
 // Test route to check Better Auth initialization
 app.get("/test-auth", async (c) => {
   try {
