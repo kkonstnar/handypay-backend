@@ -32,6 +32,8 @@ app.get("/", (c) => {
       hasBetterAuthUrl: !!process.env.BETTER_AUTH_URL,
       hasBetterAuthSecret: !!process.env.BETTER_AUTH_SECRET,
       hasDatabaseUrl: !!process.env.DATABASE_URL,
+      // Add partial client ID for debugging (first 20 chars)
+      googleClientIdPartial: process.env.GOOGLE_CLIENT_ID ? process.env.GOOGLE_CLIENT_ID.substring(0, 20) + '...' : 'not set',
     },
   });
 });
