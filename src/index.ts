@@ -33,7 +33,9 @@ app.get("/", (c) => {
       hasBetterAuthSecret: !!process.env.BETTER_AUTH_SECRET,
       hasDatabaseUrl: !!process.env.DATABASE_URL,
       // Add partial client ID for debugging (first 20 chars)
-      googleClientIdPartial: process.env.GOOGLE_CLIENT_ID ? process.env.GOOGLE_CLIENT_ID.substring(0, 20) + '...' : 'not set',
+      googleClientIdPartial: process.env.GOOGLE_CLIENT_ID
+        ? process.env.GOOGLE_CLIENT_ID.substring(0, 20) + "..."
+        : "not set",
     },
   });
 });
@@ -42,11 +44,16 @@ app.get("/", (c) => {
 app.get("/test-google-config", async (c) => {
   try {
     console.log("Testing Google OAuth configuration...");
-    
+
     return c.json({
-      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientId: process.env.GOOGLE_CLIENT_ID ? process.env.GOOGLE_CLIENT_ID.substring(0, 20) + "..." : "not set",
       hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: "https://handypay-backend.onrender.com/auth/google/callback"
+      hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+      redirectUri: "https://handypay-backend.onrender.com/auth/google/callback",
+      environmentCheck: {
+        NODE_ENV: process.env.NODE_ENV,
+        hasGoogleCredentials: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+      }
     });
   } catch (error) {
     console.error("Google config test error:", error);
@@ -241,17 +248,15 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
       );
     } else {
       // User doesn't exist, create a minimal user record
-      await db
-        .insert(users)
-        .values({
-          id: userId,
-          stripeAccountId: stripeAccountId,
-          stripeOnboardingCompleted: true,
-          authProvider: 'unknown', // We'll need to update this when we know
-          memberSince: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
+      await db.insert(users).values({
+        id: userId,
+        stripeAccountId: stripeAccountId,
+        stripeOnboardingCompleted: true,
+        authProvider: "unknown", // We'll need to update this when we know
+        memberSince: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
 
       console.log(
         `✅ Created new user record and marked onboarding as completed for user ${userId} with account ${stripeAccountId}`
@@ -684,16 +689,48 @@ app.post("/auth/google/token", async (c) => {
     const { code, provider, redirectUri } = await c.req.json();
 
     console.log(`${provider} token exchange request received`);
-    console.log('Redirect URI:', redirectUri);
+    console.log("Redirect URI:", redirectUri);
+    console.log("Code received:", code ? code.substring(0, 20) + "..." : "null");
+    console.log("Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
+    console.log("Client Secret available:", !!process.env.GOOGLE_CLIENT_SECRET);
 
     if (!code) {
       return c.json({ error: "Authorization code is required" }, 400);
     }
 
     if (!process.env.GOOGLE_CLIENT_SECRET) {
-      console.error("GOOGLE_CLIENT_SECRET not configured");
-      return c.json({ error: "Server configuration error" }, 500);
+      console.error("GOOGLE_CLIENT_SECRET not configured in environment");
+      return c.json({
+        error: "Server configuration error",
+        details: "GOOGLE_CLIENT_SECRET not set"
+      }, 500);
     }
+
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      console.error("GOOGLE_CLIENT_ID not configured in environment");
+      return c.json({
+        error: "Server configuration error",
+        details: "GOOGLE_CLIENT_ID not set"
+      }, 500);
+    }
+
+    const finalRedirectUri = redirectUri || "https://handypay-backend.onrender.com/auth/google/callback";
+
+    const tokenRequestBody = new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID!,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      code: code,
+      grant_type: "authorization_code",
+      redirect_uri: finalRedirectUri,
+    });
+
+    console.log("Token exchange request details:");
+    console.log("- URL: https://oauth2.googleapis.com/token");
+    console.log("- Method: POST");
+    console.log("- Content-Type: application/x-www-form-urlencoded");
+    console.log("- Body keys:", Array.from(tokenRequestBody.keys()));
+    console.log("- Code length:", code.length);
+    console.log("- Redirect URI:", finalRedirectUri);
 
     // Exchange code for tokens using client secret
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
@@ -701,18 +738,15 @@ app.post("/auth/google/token", async (c) => {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID!,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET!, // Use client secret for regular OAuth
-        code: code,
-        grant_type: "authorization_code",
-        redirect_uri: redirectUri || "https://handypay-backend.onrender.com/auth/google/callback",
-      }),
+      body: tokenRequestBody,
     });
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
-      console.error("Google token exchange failed - Status:", tokenResponse.status);
+      console.error(
+        "Google token exchange failed - Status:",
+        tokenResponse.status
+      );
       console.error("Google token exchange failed - Response:", errorText);
 
       let parsedError;
@@ -722,18 +756,21 @@ app.post("/auth/google/token", async (c) => {
         parsedError = errorText;
       }
 
-      return c.json({
-        error: "Token exchange failed",
-        details: parsedError,
-        status: tokenResponse.status
-      }, 400);
+      return c.json(
+        {
+          error: "Token exchange failed",
+          details: parsedError,
+          status: tokenResponse.status,
+        },
+        400
+      );
     }
 
     const tokens = await tokenResponse.json();
     console.log("Google tokens received:", {
       access_token: !!tokens.access_token,
       refresh_token: !!tokens.refresh_token,
-      expires_in: tokens.expires_in
+      expires_in: tokens.expires_in,
     });
 
     // Get user info from Google
@@ -785,8 +822,6 @@ app.post("/auth/google/token", async (c) => {
     );
   }
 });
-
-
 
 // Auth verification endpoint for mobile app
 app.post("/auth/verify", async (c) => {
