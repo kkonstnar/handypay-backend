@@ -367,6 +367,56 @@ app.post("/api/stripe/create-account-link", async (c) => {
   }
 });
 
+// Create payment link endpoint
+app.post("/api/stripe/create-payment-link", async (c) => {
+  try {
+    const {
+      handyproUserId,
+      customerName,
+      customerEmail,
+      description,
+      amount,
+      taskDetails,
+      dueDate,
+    } = await c.req.json();
+
+    if (!handyproUserId || !amount) {
+      return c.json(
+        {
+          error: "Missing required fields: handyproUserId, amount",
+        },
+        400
+      );
+    }
+
+    console.log("💳 Creating payment link for user:", handyproUserId, "amount:", amount);
+
+    const paymentLink = await StripeService.createPaymentLink({
+      handyproUserId,
+      customerName,
+      customerEmail,
+      description,
+      amount,
+      taskDetails,
+      dueDate,
+    });
+
+    return c.json({
+      success: true,
+      invoice: paymentLink,
+    });
+  } catch (error) {
+    console.error("❌ Payment link creation error:", error);
+    return c.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to create payment link",
+      },
+      500
+    );
+  }
+});
+
 // Stripe account status endpoint
 // GET endpoint for account status (frontend compatibility)
 app.get("/api/stripe/account-status/:accountId", async (c) => {

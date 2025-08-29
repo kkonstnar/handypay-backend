@@ -266,4 +266,90 @@ export class StripeService {
       return null;
     }
   }
+
+  static async createPaymentLink({
+    handyproUserId,
+    customerName,
+    customerEmail,
+    description,
+    amount,
+    taskDetails,
+    dueDate,
+  }: {
+    handyproUserId: string;
+    customerName?: string;
+    customerEmail?: string;
+    description?: string;
+    amount: number;
+    taskDetails?: string;
+    dueDate?: string;
+  }) {
+    try {
+      console.log(`💳 Creating payment link for user ${handyproUserId}, amount: ${amount} cents`);
+
+      // Get the user's Stripe account ID
+      const stripeAccountId = await this.getUserStripeAccount(handyproUserId);
+
+      if (!stripeAccountId) {
+        throw new Error("User does not have a Stripe account set up");
+      }
+
+      // Verify the account can accept payments
+      const accountStatus = await this.getAccountStatus(stripeAccountId);
+      if (!accountStatus.charges_enabled) {
+        throw new Error("Your Stripe account is not ready to accept payments. Please complete your onboarding.");
+      }
+
+      // Create a payment link using Stripe's Payment Links API
+      const paymentLink = await stripe.paymentLinks.create({
+        line_items: [
+          {
+            price_data: {
+              currency: 'jmd',
+              product_data: {
+                name: description || 'Payment',
+                description: taskDetails || description,
+              },
+              unit_amount: amount, // Amount in cents
+            },
+            quantity: 1,
+          },
+        ],
+        after_completion: {
+          type: 'hosted_confirmation',
+          hosted_confirmation: {
+            custom_message: 'Thank you for your payment! Your HandyPro will be in touch soon.',
+          },
+        },
+        customer_creation: customerEmail ? 'always' : 'if_required',
+        ...(customerEmail && {
+          customer_email: customerEmail,
+        }),
+        metadata: {
+          handyproUserId,
+          customerName: customerName || '',
+          taskDetails: taskDetails || '',
+        },
+        ...(dueDate && {
+          expires_at: Math.floor(new Date(dueDate).getTime() / 1000),
+        }),
+        transfer_data: {
+          destination: stripeAccountId,
+        },
+      });
+
+      console.log(`✅ Payment link created: ${paymentLink.url}`);
+
+      return {
+        id: paymentLink.id,
+        hosted_invoice_url: paymentLink.url,
+        status: paymentLink.active ? 'open' : 'inactive',
+        amount_due: amount,
+        payment_link: paymentLink.url,
+      };
+    } catch (error) {
+      console.error("❌ Error creating payment link:", error);
+      throw error;
+    }
+  }
 }
