@@ -389,10 +389,7 @@ app.get("/api/stripe/account-status/:accountId", async (c) => {
     return c.json({
       success: true,
       stripeOnboardingComplete: accountStatus.charges_enabled,
-      details_submitted: accountStatus.details_submitted,
-      charges_enabled: accountStatus.charges_enabled,
-      payouts_enabled: accountStatus.payouts_enabled,
-      ...accountStatus,
+      accountStatus,
     });
   } catch (error) {
     console.error("❌ Stripe account status error:", error);
