@@ -52,13 +52,17 @@ app.get("/stripe/return", async (c) => {
   if (error) {
     console.error("❌ Stripe onboarding error:", error);
     // Redirect back to app with error
-    return c.redirect(`handypay://stripe/error?error=${encodeURIComponent(error)}`);
+    return c.redirect(
+      `handypay://stripe/error?error=${encodeURIComponent(error)}`
+    );
   }
 
   if (accountId) {
     console.log("✅ Stripe account completed:", accountId);
     // Redirect back to app with success
-    return c.redirect(`handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`);
+    return c.redirect(
+      `handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`
+    );
   }
 
   // Default redirect
@@ -73,11 +77,58 @@ app.get("/stripe/refresh", async (c) => {
 
   if (accountId) {
     // Redirect back to app to restart onboarding
-    return c.redirect(`handypay://stripe/refresh?accountId=${encodeURIComponent(accountId)}`);
+    return c.redirect(
+      `handypay://stripe/refresh?accountId=${encodeURIComponent(accountId)}`
+    );
   }
 
   // Default refresh redirect
   return c.redirect("handypay://stripe/refresh");
+});
+
+// Complete Stripe onboarding endpoint
+app.post("/api/stripe/complete-onboarding", async (c) => {
+  try {
+    const { userId, stripeAccountId } = await c.req.json();
+
+    if (!userId || !stripeAccountId) {
+      return c.json({ error: "Missing required fields: userId, stripeAccountId" }, 400);
+    }
+
+    console.log("✅ Completing Stripe onboarding for user:", userId, "account:", stripeAccountId);
+
+    // Update user with onboarding completion
+    const existingUser = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (existingUser.length === 0) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    await db
+      .update(users)
+      .set({
+        stripeAccountId: stripeAccountId,
+        stripeOnboardingCompleted: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    console.log("✅ Onboarding completed and stored in database for user:", userId);
+
+    return c.json({
+      success: true,
+      message: "Onboarding completed successfully",
+      userId,
+      stripeAccountId
+    });
+  } catch (error) {
+    console.error("❌ Error completing onboarding:", error);
+    return c.json({ error: "Failed to complete onboarding" }, 500);
+  }
 });
 
 // User synchronization endpoint for syncing authenticated users to backend DB
