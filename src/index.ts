@@ -131,6 +131,45 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
   }
 });
 
+// Get user account endpoint
+app.get("/api/stripe/user-account/:userId", async (c) => {
+  try {
+    const userId = c.req.param('userId');
+
+    if (!userId) {
+      return c.json({ error: "Missing userId parameter" }, 400);
+    }
+
+    console.log("🔍 Getting user account for:", userId);
+
+    // Get user account data from database
+    const userAccount = await db
+      .select({
+        id: users.id,
+        stripeAccountId: users.stripeAccountId,
+        stripeOnboardingCompleted: users.stripeOnboardingCompleted
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (userAccount.length === 0) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const account = userAccount[0];
+
+    return c.json({
+      user_id: account.id,
+      stripe_account_id: account.stripeAccountId,
+      stripe_onboarding_completed: account.stripeOnboardingCompleted
+    });
+  } catch (error) {
+    console.error("❌ Error getting user account:", error);
+    return c.json({ error: "Failed to get user account" }, 500);
+  }
+});
+
 // User synchronization endpoint for syncing authenticated users to backend DB
 app.post("/api/users/sync", async (c) => {
   try {
