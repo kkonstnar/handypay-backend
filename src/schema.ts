@@ -70,3 +70,47 @@ export const transactions = pgTable("transactions", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+export const payoutRules = pgTable("payout_rules", {
+  id: text("id").primaryKey().default("default_rule"),
+  ruleName: text("rule_name").notNull().default("Standard Payout Rule"),
+  firstTransactionDelayDays: integer("first_transaction_delay_days").default(7),
+  subsequentDelayDaysMin: integer("subsequent_delay_days_min").default(2),
+  subsequentDelayDaysMax: integer("subsequent_delay_days_max").default(5),
+  minimumPayoutAmount: decimal("minimum_payout_amount", {
+    precision: 10,
+    scale: 2,
+  }).default("0.00"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const payouts = pgTable("payouts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+
+  // Payout details
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").default("JMD"),
+  status: text("status").notNull().default("pending"), // 'pending' | 'processing' | 'completed' | 'failed'
+
+  // Payout scheduling
+  payoutDate: timestamp("payout_date", { withTimezone: true }).notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+
+  // Bank account details
+  bankAccount: text("bank_account"), // Last 4 digits or full account details
+  stripePayoutId: text("stripe_payout_id"), // Stripe payout ID
+
+  // Fees and processing
+  feeAmount: decimal("fee_amount", { precision: 10, scale: 2 }).default("0.00"),
+
+  // Description and notes
+  description: text("description"),
+
+  // Timestamps
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});

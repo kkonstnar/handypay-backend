@@ -238,17 +238,13 @@ export class StripeService {
                     },
                 },
                 customer_creation: customerEmail ? "always" : "if_required",
-                ...(customerEmail && {
-                    customer_email: customerEmail,
-                }),
                 metadata: {
                     handyproUserId,
                     customerName: customerName || "",
+                    customerEmail: customerEmail || "",
                     taskDetails: taskDetails || "",
                 },
-                ...(dueDate && {
-                    expires_at: Math.floor(new Date(dueDate).getTime() / 1000),
-                }),
+                // Note: expires_at is not supported in payment links, expiration is handled differently
                 transfer_data: {
                     destination: stripeAccountId,
                 },
@@ -381,6 +377,9 @@ export class StripeService {
                 case "invoice.payment_failed":
                     await this.handleInvoicePaymentFailed(event.data.object);
                     break;
+                case "account.updated":
+                    await this.handleAccountUpdated(event.data.object);
+                    break;
                 default:
                     console.log(`Unhandled webhook event: ${event.type}`);
             }
@@ -470,6 +469,46 @@ export class StripeService {
         }
         catch (error) {
             console.error("❌ Error processing payment intent failure:", error);
+        }
+    }
+    static async handleAccountUpdated(account) {
+        console.log("🔄 Account updated:", account.id);
+        try {
+            // Find user by Stripe account ID
+            const user = await db
+                .select()
+                .from(users)
+                .where(eq(users.stripeAccountId, account.id))
+                .limit(1);
+            if (user.length > 0) {
+                const userId = user[0].id;
+                // Check if account is now enabled for charges
+                const chargesEnabled = account.charges_enabled;
+                const onboardingCompleted = chargesEnabled; // Use charges_enabled as completion indicator
+                console.log("📊 Account status check:", {
+                    accountId: account.id,
+                    chargesEnabled,
+                    detailsSubmitted: account.details_submitted,
+                    onboardingCompleted,
+                });
+                if (onboardingCompleted) {
+                    // Update user onboarding status
+                    await db
+                        .update(users)
+                        .set({
+                        stripeOnboardingCompleted: true,
+                        updatedAt: new Date(),
+                    })
+                        .where(eq(users.id, userId));
+                    console.log(`✅ Onboarding marked complete for user: ${userId}`);
+                }
+            }
+            else {
+                console.log("⚠️ No user found for Stripe account:", account.id);
+            }
+        }
+        catch (error) {
+            console.error("❌ Error processing account update:", error);
         }
     }
     static async handleCheckoutSessionCompleted(session) {
