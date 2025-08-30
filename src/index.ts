@@ -664,9 +664,9 @@ app.get("/api/stripe/payment-link-status/:paymentLinkId", async (c) => {
 
     // Check if payment link has reached its completion limit
     const completedSessions =
-      paymentLink.restrictions?.completed_sessions?.limit || 0;
+      (paymentLink as any).restrictions?.completed_sessions?.limit || 0;
     const usedSessions =
-      paymentLink.restrictions?.completed_sessions?.used || 0;
+      (paymentLink as any).restrictions?.completed_sessions?.used || 0;
 
     console.log(
       `📊 Payment link restrictions: ${usedSessions}/${completedSessions} completed sessions`
@@ -677,11 +677,11 @@ app.get("/api/stripe/payment-link-status/:paymentLinkId", async (c) => {
       console.log("✅ Payment link has been used (reached completion limit)");
       return c.json({
         id: paymentLink.id,
-        active: paymentLink.active,
+        active: (paymentLink as any).active,
         url: paymentLink.url,
         status: "completed",
-        created: paymentLink.created,
-        amount_total: paymentLink.amount_total,
+        created: (paymentLink as any).created,
+        amount_total: (paymentLink as any).amount,
         completed_sessions: usedSessions,
         session_limit: completedSessions,
       });
@@ -696,15 +696,15 @@ app.get("/api/stripe/payment-link-status/:paymentLinkId", async (c) => {
       const paymentIntents = await stripe.paymentIntents.list({
         limit: 10,
         created: {
-          gte: paymentLink.created - 300, // 5 minutes before
-          lte: paymentLink.created + 3600, // 1 hour after
+          gte: (paymentLink as any).created - 300, // 5 minutes before
+          lte: (paymentLink as any).created + 3600, // 1 hour after
         },
       });
 
       // Look for payment intents with similar metadata or amount
       for (const pi of paymentIntents.data) {
         if (
-          pi.amount === paymentLink.amount_total &&
+          pi.amount === (paymentLink as any).amount &&
           pi.status === "succeeded"
         ) {
           paymentStatus = "completed";
@@ -724,7 +724,7 @@ app.get("/api/stripe/payment-link-status/:paymentLinkId", async (c) => {
 
       // If no payment intents found, check if payment link has been used recently
       if (paymentStatus === "pending") {
-        const createdTime = new Date(paymentLink.created * 1000);
+        const createdTime = new Date((paymentLink as any).created * 1000);
         const now = new Date();
         const minutesSinceCreation =
           (now.getTime() - createdTime.getTime()) / (1000 * 60);
@@ -740,7 +740,7 @@ app.get("/api/stripe/payment-link-status/:paymentLinkId", async (c) => {
     } catch (piError) {
       console.log("⚠️ Could not check payment intents:", piError);
       // Fall back to time-based simulation for demo
-      const createdTime = new Date(paymentLink.created * 1000);
+      const createdTime = new Date((paymentLink as any).created * 1000);
       const now = new Date();
       const minutesSinceCreation =
         (now.getTime() - createdTime.getTime()) / (1000 * 60);
@@ -753,11 +753,11 @@ app.get("/api/stripe/payment-link-status/:paymentLinkId", async (c) => {
 
     return c.json({
       id: paymentLink.id,
-      active: paymentLink.active,
+      active: (paymentLink as any).active,
       url: paymentLink.url,
       status: paymentStatus,
-      created: paymentLink.created,
-      amount_total: paymentLink.amount_total,
+      created: (paymentLink as any).created,
+      amount_total: (paymentLink as any).amount,
       payment_intent_id: paymentIntentId,
     });
   } catch (error) {
