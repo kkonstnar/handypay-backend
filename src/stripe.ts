@@ -322,8 +322,7 @@ export class StripeService {
         after_completion: {
           type: "hosted_confirmation",
           hosted_confirmation: {
-            custom_message:
-              "Thank you for your payment! Your HandyPro will be in touch soon.",
+            custom_message: "Thank you for your payment!",
           },
         },
         customer_creation: customerEmail ? "always" : "if_required",
