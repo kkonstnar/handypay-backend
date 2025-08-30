@@ -762,6 +762,31 @@ app.get("/auth/google", async (c) => {
         return c.json({ error: "Failed to initiate Google OAuth" }, 500);
     }
 });
+// Google OAuth callback endpoint (handles redirect from Google)
+app.get("/auth/google/callback", async (c) => {
+    try {
+        const code = c.req.query("code");
+        const state = c.req.query("state");
+        const error = c.req.query("error");
+        console.log("🔄 Google OAuth callback received:", { code: !!code, state, error });
+        if (error) {
+            console.error("❌ Google OAuth error:", error);
+            // Redirect back to app with error
+            return c.redirect(`handypay://oauth?error=${encodeURIComponent(error)}`);
+        }
+        if (code) {
+            console.log("✅ Google OAuth code received, redirecting to app...");
+            // Redirect back to app with the authorization code
+            return c.redirect(`handypay://oauth?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}`);
+        }
+        console.error("❌ No authorization code or error received");
+        return c.redirect(`handypay://oauth?error=no_code`);
+    }
+    catch (error) {
+        console.error("❌ Google OAuth callback error:", error);
+        return c.redirect(`handypay://oauth?error=callback_error`);
+    }
+});
 // Google OAuth token exchange endpoint (for mobile app)
 app.post("/api/auth/google/token", async (c) => {
     try {
@@ -1076,7 +1101,9 @@ async function shouldProcessPayoutForUser(userId) {
         return false;
     const rule = rules[0];
     // Check if rule properties are valid
-    if (!rule.firstTransactionDelayDays || !rule.subsequentDelayDaysMin || !rule.subsequentDelayDaysMax) {
+    if (!rule.firstTransactionDelayDays ||
+        !rule.subsequentDelayDaysMin ||
+        !rule.subsequentDelayDaysMax) {
         return false;
     }
     // Get user's most recent payout
