@@ -5,11 +5,15 @@ export const users = pgTable("users", {
     fullName: text("full_name"),
     firstName: text("first_name"),
     lastName: text("last_name"),
-    authProvider: text("auth_provider").notNull(),
-    appleUserId: text("apple_user_id"),
-    googleUserId: text("google_user_id"),
+    authProvider: text("auth_provider").notNull(), // Primary/last used provider
+    appleUserId: text("apple_user_id"), // Apple provider ID (can be linked to account)
+    googleUserId: text("google_user_id"), // Google provider ID (can be linked to account)
     stripeAccountId: text("stripe_account_id"),
     stripeOnboardingCompleted: boolean("stripe_onboarding_completed").default(false),
+    // Additional fields from your current schema
+    faceIdEnabled: boolean("face_id_enabled").default(false),
+    safetyPinEnabled: boolean("safety_pin_enabled").default(false),
+    safetyPinHash: text("safety_pin_hash"),
     memberSince: timestamp("member_since", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -19,7 +23,6 @@ export const usersIndexes = {
     appleUserId: "users_apple_user_id_idx",
     googleUserId: "users_google_user_id_idx",
 };
-;
 export const transactions = pgTable("transactions", {
     id: text("id").primaryKey(),
     userId: text("user_id")
