@@ -676,6 +676,49 @@ app.post("/api/debug/update-stripe-account", async (c) => {
         }, 500);
     }
 });
+// Delete user endpoint - removes user and all related data
+app.delete("/api/users/:userId", async (c) => {
+    try {
+        const userId = c.req.param("userId");
+        if (!userId) {
+            return c.json({ error: "Missing userId parameter" }, 400);
+        }
+        console.log(`🗑️ Starting user deletion process for: ${userId}`);
+        // First, check if user exists
+        const existingUser = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+        if (existingUser.length === 0) {
+            return c.json({ error: "User not found" }, 404);
+        }
+        console.log(`✅ User ${userId} found, proceeding with deletion`);
+        // Step 1: Delete all transactions for this user
+        console.log(`🗑️ Deleting transactions for user ${userId}`);
+        await db.delete(transactions).where(eq(transactions.userId, userId));
+        console.log(`✅ Deleted transactions for user ${userId}`);
+        // Step 2: Delete all payouts for this user
+        console.log(`🗑️ Deleting payouts for user ${userId}`);
+        await db.delete(payouts).where(eq(payouts.userId, userId));
+        console.log(`✅ Deleted payouts for user ${userId}`);
+        // Step 3: Delete the user record
+        console.log(`🗑️ Deleting user record for ${userId}`);
+        await db.delete(users).where(eq(users.id, userId));
+        console.log(`✅ Successfully deleted user ${userId} and all related data`);
+        return c.json({
+            success: true,
+            message: `User ${userId} and all related data deleted successfully`,
+        });
+    }
+    catch (error) {
+        console.error("❌ Error deleting user:", error);
+        return c.json({
+            success: false,
+            error: error instanceof Error ? error.message : "Failed to delete user",
+        }, 500);
+    }
+});
 // Test endpoint to manually trigger account update webhook logic
 app.post("/api/stripe/test-account-update", async (c) => {
     try {
