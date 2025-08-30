@@ -123,7 +123,7 @@ app.post("/api/stripe/complete-onboarding", async (c) => {
 
     if (!onboardingCompleted) {
       console.log("⚠️ Onboarding not yet complete - charges not enabled");
-    return c.json({
+      return c.json({
         success: false,
         message:
           "Onboarding not yet complete. Please complete all required information in Stripe.",
@@ -235,8 +235,8 @@ app.post("/api/users/sync", async (c) => {
     } = userData;
 
     if (!id || !authProvider || !memberSince) {
-    return c.json(
-      {
+      return c.json(
+        {
           error: "Missing required fields: id, authProvider, memberSince",
         },
         400
@@ -526,7 +526,7 @@ app.post("/api/stripe/expire-payment-link", async (c) => {
       );
     }
 
-      console.log(
+    console.log(
       "⏰ Expiring payment link:",
       paymentLinkId,
       "for user:",
@@ -682,7 +682,7 @@ app.get("/api/transactions/:userId", async (c) => {
       success: true,
       transactions: formattedTransactions,
     });
-        } catch (error) {
+  } catch (error) {
     console.error("❌ Transactions error:", error);
     return c.json({ error: "Failed to get transactions" }, 500);
   }
@@ -746,17 +746,17 @@ app.post("/api/transactions/cancel", async (c) => {
     });
   } catch (error) {
     console.error("❌ Transaction cancellation error:", error);
-      return c.json(
-        {
+    return c.json(
+      {
         success: false,
         error:
           error instanceof Error
             ? error.message
             : "Failed to cancel transaction",
-        },
-        500
-      );
-    }
+      },
+      500
+    );
+  }
 });
 
 // Debug endpoint to test basic database write
@@ -802,8 +802,8 @@ app.post("/api/debug/test-update", async (c) => {
     });
   } catch (error) {
     console.error("❌ Debug test error:", error);
-      return c.json(
-        {
+    return c.json(
+      {
         error: "Failed to test update",
         details: error instanceof Error ? error.message : "Unknown error",
       },
@@ -876,10 +876,13 @@ app.post("/api/debug/update-stripe-account", async (c) => {
     });
   } catch (error) {
     console.error("❌ Error updating Stripe account:", error);
-    return c.json({
-      success: false,
-      error: error.message,
-    }, 500);
+    return c.json(
+      {
+        success: false,
+        error: error.message,
+      },
+      500
+    );
   }
 });
 
@@ -888,7 +891,10 @@ app.post("/api/stripe/test-account-update", async (c) => {
   try {
     const { accountId, userId } = await c.req.json();
 
-    console.log('🧪 Testing account update webhook logic:', { accountId, userId });
+    console.log("🧪 Testing account update webhook logic:", {
+      accountId,
+      userId,
+    });
 
     // Simulate account updated event
     const mockAccount = {
@@ -903,16 +909,19 @@ app.post("/api/stripe/test-account-update", async (c) => {
 
     return c.json({
       success: true,
-      message: 'Account update test completed',
+      message: "Account update test completed",
       accountId,
-      userId
+      userId,
     });
   } catch (error) {
-    console.error('❌ Error in test account update:', error);
-    return c.json({
-      success: false,
-      error: error.message
-    }, 500);
+    console.error("❌ Error in test account update:", error);
+    return c.json(
+      {
+        success: false,
+        error: error.message,
+      },
+      500
+    );
   }
 });
 
