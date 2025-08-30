@@ -502,6 +502,10 @@ export class StripeService {
           await this.handleInvoicePaymentFailed(event.data.object);
           break;
 
+        case "account.updated":
+          await this.handleAccountUpdated(event.data.object);
+          break;
+
         default:
           console.log(`Unhandled webhook event: ${event.type}`);
       }
@@ -607,6 +611,51 @@ export class StripeService {
       });
     } catch (error) {
       console.error("❌ Error processing payment intent failure:", error);
+    }
+  }
+
+  private static async handleAccountUpdated(account: any) {
+    console.log("🔄 Account updated:", account.id);
+
+    try {
+      // Find user by Stripe account ID
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.stripeAccountId, account.id))
+        .limit(1);
+
+      if (user.length > 0) {
+        const userId = user[0].id;
+
+        // Check if account is now enabled for charges
+        const chargesEnabled = account.charges_enabled;
+        const onboardingCompleted = chargesEnabled; // Use charges_enabled as completion indicator
+
+        console.log("📊 Account status check:", {
+          accountId: account.id,
+          chargesEnabled,
+          detailsSubmitted: account.details_submitted,
+          onboardingCompleted,
+        });
+
+        if (onboardingCompleted) {
+          // Update user onboarding status
+          await db
+            .update(users)
+            .set({
+              stripeOnboardingCompleted: true,
+              updatedAt: new Date(),
+            })
+            .where(eq(users.id, userId));
+
+          console.log(`✅ Onboarding marked complete for user: ${userId}`);
+        }
+      } else {
+        console.log("⚠️ No user found for Stripe account:", account.id);
+      }
+    } catch (error) {
+      console.error("❌ Error processing account update:", error);
     }
   }
 
