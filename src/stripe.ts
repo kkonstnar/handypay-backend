@@ -614,7 +614,7 @@ export class StripeService {
     }
   }
 
-  private static async handleAccountUpdated(account: any) {
+  public static async handleAccountUpdated(account: any) {
     console.log("🔄 Account updated:", account.id);
 
     try {

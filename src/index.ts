@@ -879,7 +879,7 @@ app.post("/api/debug/update-stripe-account", async (c) => {
     return c.json(
       {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
       },
       500
     );
@@ -918,7 +918,7 @@ app.post("/api/stripe/test-account-update", async (c) => {
     return c.json(
       {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
       },
       500
     );
