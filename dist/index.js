@@ -189,7 +189,9 @@ app.post("/api/users/sync", async (c) => {
                 .limit(1);
         }
         // If provider ID already exists on a different account, return that account
-        if (existingAccountCheck && existingAccountCheck.length > 0 && existingAccountCheck[0].id !== id) {
+        if (existingAccountCheck &&
+            existingAccountCheck.length > 0 &&
+            existingAccountCheck[0].id !== id) {
             console.log(`🔄 Provider ID already linked to account: ${existingAccountCheck[0].id}`);
             return c.json({
                 success: true,
@@ -226,10 +228,7 @@ app.post("/api/users/sync", async (c) => {
             if (googleUserId) {
                 updateData.googleUserId = googleUserId;
             }
-            await db
-                .update(users)
-                .set(updateData)
-                .where(eq(users.id, id));
+            await db.update(users).set(updateData).where(eq(users.id, id));
             console.log(`✅ Updated existing user in backend: ${id}`);
             console.log(`✅ Provider IDs: Apple=${!!appleUserId}, Google=${!!googleUserId}`);
         }
