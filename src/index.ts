@@ -687,22 +687,43 @@ app.get("/api/stripe/payment-link-status/:paymentLinkId", async (c) => {
       });
     }
 
+    // Also check if the payment link is inactive (another sign of completion)
+    if (!(paymentLink as any).active) {
+      console.log("✅ Payment link is inactive (likely completed)");
+      return c.json({
+        id: paymentLink.id,
+        active: (paymentLink as any).active,
+        url: paymentLink.url,
+        status: "completed",
+        created: (paymentLink as any).created,
+        amount_total: (paymentLink as any).amount,
+        completed_sessions: usedSessions,
+        session_limit: completedSessions,
+      });
+    }
+
     // Try to find associated payment intents for this payment link
     let paymentStatus = "pending";
     let paymentIntentId = null;
 
     try {
       // List payment intents that might be associated with this payment link
+      // Use a wider time window for test payments
       const paymentIntents = await stripe.paymentIntents.list({
-        limit: 10,
+        limit: 20, // Increase limit to find more potential matches
         created: {
-          gte: (paymentLink as any).created - 300, // 5 minutes before
-          lte: (paymentLink as any).created + 3600, // 1 hour after
+          gte: (paymentLink as any).created - 600, // 10 minutes before
+          lte: (paymentLink as any).created + 7200, // 2 hours after
         },
       });
 
+      console.log(`🔍 Found ${paymentIntents.data.length} payment intents in time range`);
+
       // Look for payment intents with similar metadata or amount
       for (const pi of paymentIntents.data) {
+        console.log(`💳 Checking PI ${pi.id}: amount=${pi.amount}, status=${pi.status}, metadata=${JSON.stringify(pi.metadata)}`);
+
+        // Check for exact amount match and successful status
         if (
           pi.amount === (paymentLink as any).amount &&
           pi.status === "succeeded"
