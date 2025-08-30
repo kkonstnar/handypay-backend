@@ -243,6 +243,34 @@ app.post("/api/users/sync", async (c) => {
       );
     }
 
+    // FIRST: Check if this provider ID is already associated with an existing account
+    let existingAccountCheck = null;
+
+    if (appleUserId) {
+      existingAccountCheck = await db
+        .select({ id: users.id, authProvider: users.authProvider })
+        .from(users)
+        .where(eq(users.appleUserId, appleUserId))
+        .limit(1);
+    } else if (googleUserId) {
+      existingAccountCheck = await db
+        .select({ id: users.id, authProvider: users.authProvider })
+        .from(users)
+        .where(eq(users.googleUserId, googleUserId))
+        .limit(1);
+    }
+
+    // If provider ID already exists on a different account, return that account
+    if (existingAccountCheck && existingAccountCheck.length > 0 && existingAccountCheck[0].id !== id) {
+      console.log(`🔄 Provider ID already linked to account: ${existingAccountCheck[0].id}`);
+      return c.json({
+        success: true,
+        message: "Provider linked to existing account",
+        userId: existingAccountCheck[0].id,
+        existingAccount: true,
+      });
+    }
+
     // Check if user already exists
     const existingUser = await db
       .select({ id: users.id })
@@ -251,28 +279,37 @@ app.post("/api/users/sync", async (c) => {
       .limit(1);
 
     if (existingUser.length > 0) {
-      // Update existing user
+      // Update existing user - preserve existing provider IDs
+      const updateData: any = {
+        email: email || null,
+        fullName: fullName || null,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        stripeAccountId: stripeAccountId || null,
+        stripeOnboardingCompleted: stripeOnboardingCompleted || false,
+        updatedAt: new Date(),
+      };
+
+      // Only update authProvider if it's different (allows switching primary provider)
+      if (authProvider) {
+        updateData.authProvider = authProvider;
+      }
+
+      // Preserve existing provider IDs and add new ones
+      if (appleUserId) {
+        updateData.appleUserId = appleUserId;
+      }
+      if (googleUserId) {
+        updateData.googleUserId = googleUserId;
+      }
+
       await db
         .update(users)
-        .set({
-          email: email || null,
-          fullName: fullName || null,
-          firstName: firstName || null,
-          lastName: lastName || null,
-          authProvider,
-          appleUserId: appleUserId || null,
-          googleUserId: googleUserId || null,
-          stripeAccountId: stripeAccountId || null,
-          stripeOnboardingCompleted: stripeOnboardingCompleted || false,
-          updatedAt: new Date(),
-        })
+        .set(updateData)
         .where(eq(users.id, id));
 
       console.log(`✅ Updated existing user in backend: ${id}`);
-      console.log(`✅ Stripe data saved:`, {
-        stripeAccountId: stripeAccountId,
-        stripeOnboardingCompleted: stripeOnboardingCompleted,
-      });
+      console.log(`✅ Provider IDs: Apple=${!!appleUserId}, Google=${!!googleUserId}`);
     } else {
       // Create new user
       await db.insert(users).values({
@@ -292,10 +329,7 @@ app.post("/api/users/sync", async (c) => {
       });
 
       console.log(`✅ Created new user in backend: ${id}`);
-      console.log(`✅ Stripe data saved:`, {
-        stripeAccountId: stripeAccountId,
-        stripeOnboardingCompleted: stripeOnboardingCompleted,
-      });
+      console.log(`✅ Provider IDs: Apple=${!!appleUserId}, Google=${!!googleUserId}`);
     }
 
     return c.json({
@@ -1042,7 +1076,11 @@ app.get("/auth/google/callback", async (c) => {
     const state = c.req.query("state");
     const error = c.req.query("error");
 
-    console.log("🔄 Google OAuth callback received:", { code: !!code, state, error });
+    console.log("🔄 Google OAuth callback received:", {
+      code: !!code,
+      state,
+      error,
+    });
 
     if (error) {
       console.error("❌ Google OAuth error:", error);
@@ -1054,7 +1092,11 @@ app.get("/auth/google/callback", async (c) => {
       console.log("✅ Google OAuth code received, redirecting to app...");
 
       // Redirect back to app with the authorization code
-      return c.redirect(`handypay://oauth?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}`);
+      return c.redirect(
+        `handypay://oauth?code=${encodeURIComponent(
+          code
+        )}&state=${encodeURIComponent(state || "")}`
+      );
     }
 
     console.error("❌ No authorization code or error received");
