@@ -368,6 +368,7 @@ app.post("/api/stripe/create-account-link", async (c) => {
     const {
       userId,
       account_id,
+      stripeAccountId, // For continuation of existing onboarding
       refresh_url,
       return_url,
       firstName,
@@ -404,14 +405,18 @@ app.post("/api/stripe/create-account-link", async (c) => {
     console.log("✅ Found user:", user.id);
 
     // Create Stripe account and account link
+    // Use stripeAccountId parameter if provided (for continuation), otherwise use stored account
+    const accountIdToUse =
+      stripeAccountId || account_id || user.stripeAccountId;
+
     const result = await StripeService.createAccountLink({
       userId,
-      account_id: user.stripeAccountId || undefined,
+      account_id: accountIdToUse || undefined,
       refresh_url,
       return_url,
-      firstName: user.firstName || "",
-      lastName: user.lastName || "",
-      email: user.email || "",
+      firstName: user.firstName || firstName || user.firstName || "",
+      lastName: user.lastName || lastName || user.lastName || "",
+      email: user.email || email || "",
     });
 
     console.log("✅ Stripe account link created:", result);
@@ -436,7 +441,7 @@ app.post("/api/stripe/create-account-link", async (c) => {
 
     return c.json({
       success: true,
-      account_id: result.accountId,
+      accountId: result.accountId, // Frontend expects 'accountId'
       url: result.url,
       message: "Stripe account link created successfully",
     });
@@ -717,11 +722,17 @@ app.get("/api/stripe/payment-link-status/:paymentLinkId", async (c) => {
         },
       });
 
-      console.log(`🔍 Found ${paymentIntents.data.length} payment intents in time range`);
+      console.log(
+        `🔍 Found ${paymentIntents.data.length} payment intents in time range`
+      );
 
       // Look for payment intents with similar metadata or amount
       for (const pi of paymentIntents.data) {
-        console.log(`💳 Checking PI ${pi.id}: amount=${pi.amount}, status=${pi.status}, metadata=${JSON.stringify(pi.metadata)}`);
+        console.log(
+          `💳 Checking PI ${pi.id}: amount=${pi.amount}, status=${
+            pi.status
+          }, metadata=${JSON.stringify(pi.metadata)}`
+        );
 
         // Check for exact amount match and successful status
         if (
