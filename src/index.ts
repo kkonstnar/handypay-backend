@@ -279,7 +279,11 @@ app.post("/api/users/sync", async (c) => {
 
     // Check if user already exists
     const existingUser = await db
-      .select({ id: users.id })
+      .select({
+        id: users.id,
+        stripeAccountId: users.stripeAccountId,
+        stripeOnboardingCompleted: users.stripeOnboardingCompleted
+      })
       .from(users)
       .where(eq(users.id, id))
       .limit(1);
@@ -291,8 +295,12 @@ app.post("/api/users/sync", async (c) => {
         fullName: fullName || null,
         firstName: firstName || null,
         lastName: lastName || null,
-        stripeAccountId: stripeAccountId || null,
-        stripeOnboardingCompleted: stripeOnboardingCompleted || false,
+        stripeAccountId:
+          stripeAccountId || existingUser[0].stripeAccountId || null,
+        stripeOnboardingCompleted:
+          stripeOnboardingCompleted ||
+          existingUser[0].stripeOnboardingCompleted ||
+          false,
         updatedAt: new Date(),
       };
 
@@ -1397,6 +1405,82 @@ app.get("/auth/google/callback", async (c) => {
   }
 });
 
+// Test authentication endpoint for TestFlight reviewers
+app.post("/api/auth/test-login", async (c) => {
+  try {
+    console.log("🧪 Test authentication requested");
+
+    // Use predefined test account credentials
+    const testUser = {
+      id: "testflight_user_001",
+      email: "testflight@handypay.com",
+      fullName: "TestFlight User",
+      firstName: "TestFlight",
+      lastName: "User",
+      authProvider: "test",
+      memberSince: new Date().toISOString(),
+      stripeAccountId: null, // No Stripe account ID for test account
+      stripeOnboardingCompleted: true, // Mark as completed for demo
+      faceIdEnabled: false,
+      safetyPinEnabled: false,
+    };
+
+    console.log("🧪 Using test account:", testUser.id);
+
+    // Check if test user exists, create if not
+    const existingUser = await db
+      .select({
+        id: users.id,
+        stripeAccountId: users.stripeAccountId,
+        stripeOnboardingCompleted: users.stripeOnboardingCompleted
+      })
+      .from(users)
+      .where(eq(users.id, testUser.id))
+      .limit(1);
+
+    if (existingUser.length === 0) {
+      // Create test user in database
+      await db.insert(users).values({
+        id: testUser.id,
+        email: testUser.email,
+        fullName: testUser.fullName,
+        firstName: testUser.firstName,
+        lastName: testUser.lastName,
+        authProvider: testUser.authProvider,
+        memberSince: new Date(testUser.memberSince),
+        stripeAccountId: testUser.stripeAccountId || null,
+        stripeOnboardingCompleted: testUser.stripeOnboardingCompleted,
+        faceIdEnabled: testUser.faceIdEnabled,
+        safetyPinEnabled: testUser.safetyPinEnabled,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      console.log("✅ Test user created in database");
+    } else {
+      console.log("✅ Test user already exists in database");
+    }
+
+    // Initialize test data for demo purposes
+    await initializeTestData(testUser.id);
+
+    return c.json({
+      success: true,
+      user: testUser,
+      message: "Test authentication successful",
+    });
+  } catch (error) {
+    console.error("❌ Test authentication error:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Test authentication failed",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      500
+    );
+  }
+});
+
 // Google OAuth token exchange endpoint (for mobile app)
 app.post("/api/auth/google/token", async (c) => {
   try {
@@ -1898,6 +1982,143 @@ async function createAutomaticPayout(
     amount,
     status: "completed",
   };
+}
+
+// Helper function to initialize test data for demo purposes
+async function initializeTestData(userId: string): Promise<void> {
+  try {
+    console.log(`🧪 Initializing test data for user: ${userId}`);
+
+    // Check if test transactions already exist
+    const existingTransactions = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.userId, userId))
+      .limit(1);
+
+    if (existingTransactions.length > 0) {
+      console.log("✅ Test data already exists for user");
+      return;
+    }
+
+    // Create sample transactions for demo
+    const sampleTransactions = [
+      {
+        id: `tx_test_001_${userId}`,
+        userId,
+        type: "received",
+        amount: 2500, // $25.00
+        currency: "JMD",
+        description: "Payment for lawn mowing service",
+        merchant: null,
+        status: "completed",
+        date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
+        stripePaymentIntentId: "pi_test_demo_001",
+        customerName: "John Smith",
+        customerEmail: "john@example.com",
+        paymentMethod: "qr_code",
+        cardLast4: null,
+        qrCode: "demo_qr_001",
+        expiresAt: null,
+      },
+      {
+        id: `tx_test_002_${userId}`,
+        userId,
+        type: "received",
+        amount: 1500, // $15.00
+        currency: "JMD",
+        description: "Tutoring session payment",
+        merchant: null,
+        status: "completed",
+        date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
+        stripePaymentIntentId: "pi_test_demo_002",
+        customerName: "Sarah Johnson",
+        customerEmail: "sarah@example.com",
+        paymentMethod: "payment_link",
+        cardLast4: null,
+        qrCode: null,
+        expiresAt: null,
+      },
+      {
+        id: `tx_test_003_${userId}`,
+        userId,
+        type: "received",
+        amount: 5000, // $50.00
+        currency: "JMD",
+        description: "House cleaning service",
+        merchant: null,
+        status: "completed",
+        date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 1 week ago
+        stripePaymentIntentId: "pi_test_demo_003",
+        customerName: "Mike Wilson",
+        customerEmail: "mike@example.com",
+        paymentMethod: "qr_code",
+        cardLast4: null,
+        qrCode: "demo_qr_002",
+        expiresAt: null,
+      },
+      {
+        id: `tx_test_004_${userId}`,
+        userId,
+        type: "payment_link",
+        amount: 3000, // $30.00
+        currency: "JMD",
+        description: "Photography session",
+        merchant: null,
+        status: "pending",
+        date: new Date(),
+        stripePaymentIntentId: null,
+        stripePaymentLinkId: "plink_test_demo_001",
+        customerName: null,
+        customerEmail: "client@demo.com",
+        paymentMethod: "payment_link",
+        cardLast4: null,
+        qrCode: null,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // Expires in 24 hours
+      },
+    ];
+
+    // Insert sample transactions
+    for (const tx of sampleTransactions) {
+      await db.insert(transactions).values({
+        ...tx,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
+    console.log(
+      `✅ Created ${sampleTransactions.length} sample transactions for test user`
+    );
+
+    // Create a sample payout for demo
+    const samplePayout = {
+      id: `payout_test_001_${userId}`,
+      userId,
+      amount: "25.00",
+      currency: "JMD",
+      status: "completed",
+      payoutDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
+      processedAt: new Date(
+        Date.now() - 3 * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000
+      ), // Processed 2 hours later
+      bankAccount: "****8689",
+      stripePayoutId: "po_test_demo_001",
+      description: "Weekly payout",
+      feeAmount: "1.25",
+    };
+
+    await db.insert(payouts).values({
+      ...samplePayout,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    console.log("✅ Created sample payout for test user");
+  } catch (error) {
+    console.error("❌ Error initializing test data:", error);
+    // Don't throw error - test data initialization failure shouldn't break authentication
+  }
 }
 
 const port = process.env.PORT || 3000;

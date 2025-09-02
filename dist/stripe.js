@@ -234,7 +234,7 @@ export class StripeService {
                 after_completion: {
                     type: "hosted_confirmation",
                     hosted_confirmation: {
-                        custom_message: "Thank you for your payment! Your HandyPro will be in touch soon.",
+                        custom_message: "Thank you for your payment!",
                     },
                 },
                 customer_creation: customerEmail ? "always" : "if_required",
@@ -243,8 +243,14 @@ export class StripeService {
                     customerName: customerName || "",
                     customerEmail: customerEmail || "",
                     taskDetails: taskDetails || "",
+                    dueDate: dueDate || null,
                 },
-                // Note: expires_at is not supported in payment links, expiration is handled differently
+                // Make payment link single-use
+                restrictions: {
+                    completed_sessions: {
+                        limit: 1, // Allow only 1 successful payment per link
+                    },
+                },
                 transfer_data: {
                     destination: stripeAccountId,
                 },
@@ -258,7 +264,7 @@ export class StripeService {
                     type: "payment_link",
                     amount: amount,
                     currency: "JMD",
-                    description: description || `Payment for $${(amount / 100).toFixed(2)}`,
+                    description: description || "Payment Link",
                     status: "pending",
                     date: new Date(),
                     stripePaymentLinkId: paymentLink.id,
@@ -513,33 +519,126 @@ export class StripeService {
     }
     static async handleCheckoutSessionCompleted(session) {
         console.log("✅ Checkout session completed:", session.id);
-        console.log("Checkout completed:", {
-            id: session.id,
-            payment_status: session.payment_status,
-            amount_total: session.amount_total,
-            currency: session.currency,
-            metadata: session.metadata,
-        });
+        try {
+            // If this is a payment link checkout, update the transaction status
+            if (session.payment_link && session.payment_status === "paid") {
+                console.log("🔗 Payment link checkout completed, updating transaction status");
+                // Find transaction by payment link ID
+                const existingTransaction = await db
+                    .select()
+                    .from(transactions)
+                    .where(eq(transactions.stripePaymentLinkId, session.payment_link))
+                    .limit(1);
+                if (existingTransaction.length > 0) {
+                    // Update transaction status to completed
+                    await db
+                        .update(transactions)
+                        .set({
+                        status: "completed",
+                        updatedAt: new Date(),
+                        notes: `Payment completed via checkout session ${session.id}`,
+                    })
+                        .where(eq(transactions.stripePaymentLinkId, session.payment_link));
+                    console.log(`✅ Updated payment link transaction to completed: ${existingTransaction[0].id}`);
+                }
+                else {
+                    console.log(`⚠️ No transaction found for payment link: ${session.payment_link}`);
+                }
+            }
+            console.log("Checkout completed:", {
+                id: session.id,
+                payment_status: session.payment_status,
+                amount_total: session.amount_total,
+                currency: session.currency,
+                payment_link: session.payment_link,
+                metadata: session.metadata,
+            });
+        }
+        catch (error) {
+            console.error("❌ Error processing checkout session completion:", error);
+        }
     }
     static async handleInvoicePaymentSucceeded(invoice) {
         console.log("💳 Invoice payment succeeded:", invoice.id);
-        console.log("Invoice payment successful:", {
-            id: invoice.id,
-            amount_paid: invoice.amount_paid,
-            currency: invoice.currency,
-            customer_email: invoice.customer_email,
-            metadata: invoice.metadata,
-        });
+        try {
+            // If this invoice is from a payment link, update the transaction status
+            if (invoice.payment_link) {
+                console.log("🔗 Payment link invoice payment succeeded, updating transaction status");
+                // Find transaction by payment link ID
+                const existingTransaction = await db
+                    .select()
+                    .from(transactions)
+                    .where(eq(transactions.stripePaymentLinkId, invoice.payment_link))
+                    .limit(1);
+                if (existingTransaction.length > 0) {
+                    // Update transaction status to completed
+                    await db
+                        .update(transactions)
+                        .set({
+                        status: "completed",
+                        updatedAt: new Date(),
+                        notes: `Payment completed via invoice ${invoice.id}`,
+                    })
+                        .where(eq(transactions.stripePaymentLinkId, invoice.payment_link));
+                    console.log(`✅ Updated payment link transaction to completed: ${existingTransaction[0].id}`);
+                }
+                else {
+                    console.log(`⚠️ No transaction found for payment link: ${invoice.payment_link}`);
+                }
+            }
+            console.log("Invoice payment successful:", {
+                id: invoice.id,
+                amount_paid: invoice.amount_paid,
+                currency: invoice.currency,
+                customer_email: invoice.customer_email,
+                payment_link: invoice.payment_link,
+                metadata: invoice.metadata,
+            });
+        }
+        catch (error) {
+            console.error("❌ Error processing invoice payment success:", error);
+        }
     }
     static async handleInvoicePaymentFailed(invoice) {
         console.log("❌ Invoice payment failed:", invoice.id);
-        console.log("Invoice payment failed:", {
-            id: invoice.id,
-            amount_due: invoice.amount_due,
-            currency: invoice.currency,
-            customer_email: invoice.customer_email,
-            attempt_count: invoice.attempt_count,
-            metadata: invoice.metadata,
-        });
+        try {
+            // If this invoice is from a payment link, update the transaction status
+            if (invoice.payment_link) {
+                console.log("🔗 Payment link invoice payment failed, updating transaction status");
+                // Find transaction by payment link ID
+                const existingTransaction = await db
+                    .select()
+                    .from(transactions)
+                    .where(eq(transactions.stripePaymentLinkId, invoice.payment_link))
+                    .limit(1);
+                if (existingTransaction.length > 0) {
+                    // Update transaction status to failed
+                    await db
+                        .update(transactions)
+                        .set({
+                        status: "failed",
+                        updatedAt: new Date(),
+                        notes: `Payment failed via invoice ${invoice.id} (attempt ${invoice.attempt_count || 1})`,
+                    })
+                        .where(eq(transactions.stripePaymentLinkId, invoice.payment_link));
+                    console.log(`✅ Updated payment link transaction to failed: ${existingTransaction[0].id}`);
+                }
+                else {
+                    console.log(`⚠️ No transaction found for payment link: ${invoice.payment_link}`);
+                }
+            }
+            console.log("Invoice payment failed:", {
+                id: invoice.id,
+                amount_due: invoice.amount_due,
+                currency: invoice.currency,
+                customer_email: invoice.customer_email,
+                attempt_count: invoice.attempt_count,
+                payment_link: invoice.payment_link,
+                metadata: invoice.metadata,
+            });
+        }
+        catch (error) {
+            console.error("❌ Error processing invoice payment failure:", error);
+        }
     }
 }
