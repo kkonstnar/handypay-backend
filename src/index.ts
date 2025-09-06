@@ -100,14 +100,17 @@ app.get("/debug", async (c) => {
     message: "Debug endpoint working",
     timestamp: new Date().toISOString(),
     url: c.req.url,
-    method: c.req.method
+    method: c.req.method,
   });
 });
 
 // Simple test route for auth paths
 app.get("/auth/test", async (c) => {
   console.log("Auth test route hit");
-  return c.json({ message: "Auth test route working", timestamp: new Date().toISOString() });
+  return c.json({
+    message: "Auth test route working",
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Manual Google OAuth implementation (temporary workaround)
@@ -115,7 +118,8 @@ app.get("/auth/google", async (c) => {
   console.log("=== MANUAL GOOGLE OAUTH ===");
 
   const env = c.env as any;
-  const GOOGLE_CLIENT_ID = env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  const GOOGLE_CLIENT_ID =
+    env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
   const BETTER_AUTH_URL = env?.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL;
 
   if (!GOOGLE_CLIENT_ID) {
@@ -130,7 +134,7 @@ app.get("/auth/google", async (c) => {
     response_type: "code",
     scope: "openid profile email",
     prompt: "select_account",
-    access_type: "offline"
+    access_type: "offline",
   });
 
   const oauthUrl = `${baseUrl}?${params.toString()}`;
@@ -156,8 +160,8 @@ app.get("/auth/callback/google", async (c) => {
   console.log("=== GOOGLE OAUTH CALLBACK ===");
 
   const url = new URL(c.req.url);
-  const code = url.searchParams.get('code');
-  const error = url.searchParams.get('error');
+  const code = url.searchParams.get("code");
+  const error = url.searchParams.get("error");
 
   console.log("Callback params:", { code: !!code, error });
 
@@ -176,13 +180,16 @@ app.get("/auth/callback/google", async (c) => {
     success: true,
     message: "Google OAuth successful",
     code: code.substring(0, 10) + "...", // Don't log the full code for security
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
 // Test route to verify routing is working
 app.get("/test-route", async (c) => {
-  return c.json({ message: "Test route working", timestamp: new Date().toISOString() });
+  return c.json({
+    message: "Test route working",
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Removed catch-all route to avoid conflicts with specific routes
