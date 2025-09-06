@@ -57,10 +57,13 @@ app.use("/api/users/*", async (c, next) => {
 });
 // Allow initial Stripe account creation without authentication
 app.use("/api/stripe/*", async (c, next) => {
-    // Skip auth for initial account creation and status checks (used during onboarding)
+    // Skip auth for initial account creation, status checks, Stripe redirects, and payment links (used during onboarding and payments)
     if (c.req.path === "/api/stripe/create-account-link" ||
         c.req.path.startsWith("/api/stripe/account-status") ||
-        c.req.path.startsWith("/api/stripe/user-account/")) {
+        c.req.path.startsWith("/api/stripe/user-account/") ||
+        c.req.path === "/api/stripe/return" ||
+        c.req.path === "/api/stripe/refresh" ||
+        c.req.path === "/api/stripe/create-payment-link") {
         return next();
     }
     return authMiddleware(c, next);
