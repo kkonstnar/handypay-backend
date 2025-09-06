@@ -4,6 +4,7 @@ import { Pool } from "pg";
 
 // Factory function to create auth instance with environment variables
 export function createAuth(env: any) {
+  console.log("Creating auth instance...");
   // Try Cloudflare env first, then fall back to process.env for local development
   const DATABASE_URL = env?.DATABASE_URL || process.env.DATABASE_URL;
   const GOOGLE_CLIENT_ID = env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
@@ -12,6 +13,13 @@ export function createAuth(env: any) {
   const APPLE_CLIENT_SECRET = env?.APPLE_CLIENT_SECRET || process.env.APPLE_CLIENT_SECRET;
   const BETTER_AUTH_URL = env?.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL;
   const BETTER_AUTH_SECRET = env?.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET;
+
+  console.log("Environment variables loaded:");
+  console.log("- DATABASE_URL:", !!DATABASE_URL);
+  console.log("- GOOGLE_CLIENT_ID:", !!GOOGLE_CLIENT_ID);
+  console.log("- GOOGLE_CLIENT_SECRET:", !!GOOGLE_CLIENT_SECRET);
+  console.log("- BETTER_AUTH_URL:", BETTER_AUTH_URL);
+  console.log("- BETTER_AUTH_SECRET:", !!BETTER_AUTH_SECRET);
 
   if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
   if (!GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID is required");
@@ -83,3 +91,4 @@ export function createAuth(env: any) {
     },
   },
 });
+}

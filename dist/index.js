@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { auth } from "./auth.js";
 import { apiRoutes } from "./routes/index.js";
 const app = new Hono();
 // CORS middleware
@@ -13,6 +12,8 @@ app.use("*", cors({
 // Authentication middleware for protected routes
 const authMiddleware = async (c, next) => {
     try {
+        const { createAuth } = await import("./auth.js");
+        const auth = createAuth(c.env);
         const session = await auth.api.getSession({
             headers: c.req.raw.headers,
         });
@@ -57,10 +58,90 @@ app.use("/api/users/*", async (c, next) => {
 app.use("/api/stripe/*", authMiddleware);
 app.use("/api/transactions/*", authMiddleware);
 app.use("/api/payouts/*", authMiddleware);
-// Mount Better Auth routes (commented out for now - needs proper integration)
-// app.all('/api/auth/*', async (c) => {
-//   return await auth.handler(c.req.raw);
-// });
+// Test endpoint for auth configuration
+app.get("/test-auth", async (c) => {
+    try {
+        const { createAuth } = await import("./auth.js");
+        const auth = createAuth(c.env);
+        return c.json({ message: "Auth configured successfully" });
+    }
+    catch (error) {
+        return c.json({
+            error: error instanceof Error ? error.message : "Auth configuration failed",
+        }, 500);
+    }
+});
+// Debug endpoint to test routing
+app.get("/debug", async (c) => {
+    console.log("Debug endpoint hit!");
+    return c.json({
+        message: "Debug endpoint working",
+        timestamp: new Date().toISOString(),
+        url: c.req.url,
+        method: c.req.method
+    });
+});
+// Mount Better Auth routes (without /api prefix to match frontend expectations)
+app.get("/auth/google", async (c) => {
+    console.log("=== GOOGLE OAUTH ENDPOINT HIT ===");
+    console.log("Request URL:", c.req.url);
+    console.log("Request method:", c.req.method);
+    try {
+        console.log("Creating auth instance...");
+        const { createAuth } = await import("./auth.js");
+        const auth = createAuth(c.env);
+        console.log("Auth instance created successfully");
+        console.log("Calling Better Auth handler...");
+        const result = await auth.handler(c.req.raw);
+        console.log("Better Auth handler completed successfully");
+        return result;
+    }
+    catch (error) {
+        console.error("=== BETTER AUTH ERROR ===");
+        console.error("Error type:", typeof error);
+        console.error("Error message:", error instanceof Error ? error.message : String(error));
+        console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
+        return c.json({
+            error: "Google OAuth failed",
+            details: error instanceof Error ? error.message : "Unknown error",
+            timestamp: new Date().toISOString()
+        }, 500);
+    }
+});
+app.post("/auth/google/token", async (c) => {
+    try {
+        const { createAuth } = await import("./auth.js");
+        const auth = createAuth(c.env);
+        return await auth.handler(c.req.raw);
+    }
+    catch (error) {
+        console.error("Better Auth error:", error);
+        return c.json({ error: "Authentication error" }, 500);
+    }
+});
+app.get("/auth/callback/google", async (c) => {
+    try {
+        const { createAuth } = await import("./auth.js");
+        const auth = createAuth(c.env);
+        return await auth.handler(c.req.raw);
+    }
+    catch (error) {
+        console.error("Better Auth error:", error);
+        return c.json({ error: "Authentication error" }, 500);
+    }
+});
+// Catch-all for other auth routes
+app.all("/auth/*", async (c) => {
+    try {
+        const { createAuth } = await import("./auth.js");
+        const auth = createAuth(c.env);
+        return await auth.handler(c.req.raw);
+    }
+    catch (error) {
+        console.error("Better Auth error:", error);
+        return c.json({ error: "Authentication error" }, 500);
+    }
+});
 // Health check endpoint
 app.get("/", (c) => {
     return c.json({
