@@ -1,0 +1,115 @@
+{
+  "timestamp": "2025-09-06T15:46:47.739Z",
+  "environment": "https://api.production.com",
+  "summary": {
+    "total": 17,
+    "passed": 0,
+    "failed": 17,
+    "successRate": "0.0%",
+    "duration": "0.26s"
+  },
+  "tests": [
+    {
+      "name": "Health Check",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.680Z"
+    },
+    {
+      "name": "Database Connection",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.684Z"
+    },
+    {
+      "name": "Auth Protection: /api/users/sync",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.692Z"
+    },
+    {
+      "name": "Auth Protection: /api/stripe/user-account/test123",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.696Z"
+    },
+    {
+      "name": "Auth Protection: /api/transactions/test123",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.700Z"
+    },
+    {
+      "name": "Input Validation: SQL Injection Attempt",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.703Z"
+    },
+    {
+      "name": "Input Validation: XSS Injection Attempt",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.706Z"
+    },
+    {
+      "name": "Input Validation: Invalid Email Format",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.708Z"
+    },
+    {
+      "name": "Security Headers",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.710Z"
+    },
+    {
+      "name": "CORS Policy",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.712Z"
+    },
+    {
+      "name": "Rate Limiting",
+      "passed": false,
+      "details": "0/20 requests succeeded",
+      "timestamp": "2025-09-06T15:46:47.727Z"
+    },
+    {
+      "name": "Load Performance",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.732Z"
+    },
+    {
+      "name": "Error Handling: Invalid Endpoint",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.734Z"
+    },
+    {
+      "name": "Error Handling: Malformed JSON",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.735Z"
+    },
+    {
+      "name": "Stripe Integration: /api/stripe/user-account/test123",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.736Z"
+    },
+    {
+      "name": "Stripe Integration: /api/stripe/create-account-link",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.737Z"
+    },
+    {
+      "name": "Webhook Endpoint",
+      "passed": false,
+      "details": "getaddrinfo ENOTFOUND api.production.com",
+      "timestamp": "2025-09-06T15:46:47.738Z"
+    }
+  ]
+}

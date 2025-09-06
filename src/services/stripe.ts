@@ -1,11 +1,24 @@
 import Stripe from "stripe";
-import { db } from "./db.js";
-import { users, transactions } from "./schema.js";
+import { users, transactions } from "../schema.js";
 import { eq } from "drizzle-orm";
 
-const stripe = new Stripe(process.env.STRIPE_TEST_SECRET_KEY as string, {
-  apiVersion: "2025-08-27.basil",
-});
+// Stripe instance will be created with environment variables
+let stripe: Stripe;
+
+export function getStripe(env: any): Stripe {
+  if (!stripe) {
+    // Try Cloudflare env first, then fall back to process.env for local development
+    const STRIPE_TEST_SECRET_KEY =
+      env?.STRIPE_TEST_SECRET_KEY || process.env.STRIPE_TEST_SECRET_KEY;
+    if (!STRIPE_TEST_SECRET_KEY) {
+      throw new Error("STRIPE_TEST_SECRET_KEY is required");
+    }
+    stripe = new Stripe(STRIPE_TEST_SECRET_KEY, {
+      apiVersion: "2025-08-27.basil",
+    });
+  }
+  return stripe;
+}
 
 export interface StripeAccountData {
   userId: string;
@@ -18,21 +31,24 @@ export interface StripeAccountData {
 }
 
 export class StripeService {
-  static async createAccountLink({
-    userId,
-    account_id,
-    firstName,
-    lastName,
-    email,
-    refresh_url,
-    return_url,
-  }: StripeAccountData) {
-    if (!process.env.STRIPE_TEST_SECRET_KEY) {
-      throw new Error("STRIPE_TEST_SECRET_KEY is not configured");
-    }
-
+  static async createAccountLink(
+    env: any,
+    {
+      userId,
+      account_id,
+      firstName,
+      lastName,
+      email,
+      refresh_url,
+      return_url,
+    }: StripeAccountData
+  ) {
     try {
       console.log("Creating Stripe account link for user:", userId);
+
+      const stripe = getStripe(env);
+      const { getDb } = await import("../utils/database.js");
+      const db = getDb(env);
 
       let accountId: string | undefined = account_id;
       let account;
@@ -218,8 +234,9 @@ export class StripeService {
     }
   }
 
-  static async getAccountStatus(accountId: string) {
+  static async getAccountStatus(env: any, accountId: string) {
     try {
+      const stripe = getStripe(env);
       const account = await stripe.accounts.retrieve(accountId);
       return {
         id: account.id,
@@ -234,9 +251,12 @@ export class StripeService {
     }
   }
 
-  static async getUserStripeAccount(userId: string) {
+  static async getUserStripeAccount(env: any, userId: string) {
     try {
       console.log(`🔍 Querying database for user ${userId} Stripe account...`);
+
+      const { getDb } = await import("../utils/database.js");
+      const db = getDb(env);
 
       const result = await db
         .select({
@@ -267,37 +287,45 @@ export class StripeService {
     }
   }
 
-  static async createPaymentLink({
-    handyproUserId,
-    customerName,
-    customerEmail,
-    description,
-    amount,
-    taskDetails,
-    dueDate,
-  }: {
-    handyproUserId: string;
-    customerName?: string;
-    customerEmail?: string;
-    description?: string;
-    amount: number;
-    taskDetails?: string;
-    dueDate?: string;
-  }) {
+  static async createPaymentLink(
+    env: any,
+    {
+      handyproUserId,
+      customerName,
+      customerEmail,
+      description,
+      amount,
+      taskDetails,
+      dueDate,
+    }: {
+      handyproUserId: string;
+      customerName?: string;
+      customerEmail?: string;
+      description?: string;
+      amount: number;
+      taskDetails?: string;
+      dueDate?: string;
+    }
+  ) {
     try {
       console.log(
         `💳 Creating payment link for user ${handyproUserId}, amount: ${amount} cents`
       );
 
+      const stripe = getStripe(env);
+
       // Get the user's Stripe account ID
-      const stripeAccountId = await this.getUserStripeAccount(handyproUserId);
+      const stripeAccountId = await this.getUserStripeAccount(
+        env,
+        handyproUserId
+      );
 
       if (!stripeAccountId) {
         throw new Error("User does not have a Stripe account set up");
       }
 
       // Verify the account can accept payments
-      const accountStatus = await this.getAccountStatus(stripeAccountId);
+      const accountStatus = await this.getAccountStatus(env, stripeAccountId);
       if (!accountStatus.charges_enabled) {
         throw new Error(
           "Your Stripe account is not ready to accept payments. Please complete your onboarding."
@@ -348,6 +376,8 @@ export class StripeService {
 
       // Store transaction in database
       try {
+        const { getDb } = await import("../utils/database.js");
+        const db = getDb(env);
         await db.insert(transactions).values({
           id: `plink_${paymentLink.id}`,
           userId: handyproUserId,
@@ -391,14 +421,20 @@ export class StripeService {
     }
   }
 
-  static async cancelPaymentLink(paymentLinkId: string, userId: string) {
+  static async cancelPaymentLink(
+    env: any,
+    paymentLinkId: string,
+    userId: string
+  ) {
     try {
       console.log(
         `🗑️ Cancelling payment link ${paymentLinkId} for user ${userId}`
       );
 
+      const stripe = getStripe(env);
+
       // Verify the user owns this payment link
-      const userStripeAccount = await this.getUserStripeAccount(userId);
+      const userStripeAccount = await this.getUserStripeAccount(env, userId);
       if (!userStripeAccount) {
         throw new Error("User does not have a Stripe account");
       }
@@ -415,6 +451,8 @@ export class StripeService {
 
       // Update transaction status in database
       try {
+        const { getDb } = await import("../utils/database.js");
+        const db = getDb(env);
         await db
           .update(transactions)
           .set({
@@ -441,14 +479,20 @@ export class StripeService {
     }
   }
 
-  static async expirePaymentLink(paymentLinkId: string, userId: string) {
+  static async expirePaymentLink(
+    env: any,
+    paymentLinkId: string,
+    userId: string
+  ) {
     try {
       console.log(
         `⏰ Expiring payment link ${paymentLinkId} for user ${userId}`
       );
 
+      const stripe = getStripe(env);
+
       // Verify the user owns this payment link
-      const userStripeAccount = await this.getUserStripeAccount(userId);
+      const userStripeAccount = await this.getUserStripeAccount(env, userId);
       if (!userStripeAccount) {
         throw new Error("User does not have a Stripe account");
       }
@@ -475,39 +519,48 @@ export class StripeService {
     }
   }
 
-  static async handleWebhook(rawBody: string, signature: string) {
+  static async handleWebhook(env: any, rawBody: string, signature: string) {
     try {
+      const stripe = getStripe(env);
+      // Try Cloudflare env first, then fall back to process.env for local development
+      const STRIPE_WEBHOOK_SECRET =
+        env?.STRIPE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
+
+      if (!STRIPE_WEBHOOK_SECRET) {
+        throw new Error("STRIPE_WEBHOOK_SECRET is required");
+      }
+
       const event = stripe.webhooks.constructEvent(
         rawBody,
         signature,
-        process.env.STRIPE_WEBHOOK_SECRET!
+        STRIPE_WEBHOOK_SECRET
       );
 
       console.log(`🎣 Webhook received: ${event.type}`);
 
       switch (event.type) {
         case "payment_intent.succeeded":
-          await this.handlePaymentIntentSucceeded(event.data.object);
+          await this.handlePaymentIntentSucceeded(env, event.data.object);
           break;
 
         case "payment_intent.payment_failed":
-          await this.handlePaymentIntentFailed(event.data.object);
+          await this.handlePaymentIntentFailed(env, event.data.object);
           break;
 
         case "checkout.session.completed":
-          await this.handleCheckoutSessionCompleted(event.data.object);
+          await this.handleCheckoutSessionCompleted(env, event.data.object);
           break;
 
         case "invoice.payment_succeeded":
-          await this.handleInvoicePaymentSucceeded(event.data.object);
+          await this.handleInvoicePaymentSucceeded(env, event.data.object);
           break;
 
         case "invoice.payment_failed":
-          await this.handleInvoicePaymentFailed(event.data.object);
+          await this.handleInvoicePaymentFailed(env, event.data.object);
           break;
 
         case "account.updated":
-          await this.handleAccountUpdated(event.data.object);
+          await this.handleAccountUpdated(env, event.data.object);
           break;
 
         default:
@@ -521,10 +574,16 @@ export class StripeService {
     }
   }
 
-  private static async handlePaymentIntentSucceeded(paymentIntent: any) {
+  private static async handlePaymentIntentSucceeded(
+    env: any,
+    paymentIntent: any
+  ) {
     console.log("💰 Payment intent succeeded:", paymentIntent.id);
 
     try {
+      const { getDb } = await import("../utils/database.js");
+      const db = getDb(env);
+
       // Find the transaction by payment intent ID
       const existingTransaction = await db
         .select()
@@ -586,10 +645,13 @@ export class StripeService {
     }
   }
 
-  private static async handlePaymentIntentFailed(paymentIntent: any) {
+  private static async handlePaymentIntentFailed(env: any, paymentIntent: any) {
     console.log("❌ Payment intent failed:", paymentIntent.id);
 
     try {
+      const { getDb } = await import("../utils/database.js");
+      const db = getDb(env);
+
       // Update transaction status to failed
       const result = await db
         .update(transactions)
@@ -618,10 +680,13 @@ export class StripeService {
     }
   }
 
-  public static async handleAccountUpdated(account: any) {
+  public static async handleAccountUpdated(env: any, account: any) {
     console.log("🔄 Account updated:", account.id);
 
     try {
+      const { getDb } = await import("../utils/database.js");
+      const db = getDb(env);
+
       // Find user by Stripe account ID
       const user = await db
         .select()
@@ -663,10 +728,13 @@ export class StripeService {
     }
   }
 
-  private static async handleCheckoutSessionCompleted(session: any) {
+  private static async handleCheckoutSessionCompleted(env: any, session: any) {
     console.log("✅ Checkout session completed:", session.id);
 
     try {
+      const { getDb } = await import("../utils/database.js");
+      const db = getDb(env);
+
       // If this is a payment link checkout, update the transaction status
       if (session.payment_link && session.payment_status === "paid") {
         console.log(
@@ -714,10 +782,13 @@ export class StripeService {
     }
   }
 
-  private static async handleInvoicePaymentSucceeded(invoice: any) {
+  private static async handleInvoicePaymentSucceeded(env: any, invoice: any) {
     console.log("💳 Invoice payment succeeded:", invoice.id);
 
     try {
+      const { getDb } = await import("../utils/database.js");
+      const db = getDb(env);
+
       // If this invoice is from a payment link, update the transaction status
       if (invoice.payment_link) {
         console.log(
@@ -765,10 +836,13 @@ export class StripeService {
     }
   }
 
-  private static async handleInvoicePaymentFailed(invoice: any) {
+  private static async handleInvoicePaymentFailed(env: any, invoice: any) {
     console.log("❌ Invoice payment failed:", invoice.id);
 
     try {
+      const { getDb } = await import("../utils/database.js");
+      const db = getDb(env);
+
       // If this invoice is from a payment link, update the transaction status
       if (invoice.payment_link) {
         console.log(

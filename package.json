@@ -6,7 +6,11 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "migrate": "tsx migrate.js"
+    "migrate": "tsx migrate.js",
+    "test": "node ../tests/test-production-readiness.js",
+    "test:local": "TEST_BASE_URL=http://localhost:3000 node ../tests/test-production-readiness.js",
+    "test:staging": "TEST_BASE_URL=https://staging-api.example.com node ../tests/test-production-readiness.js",
+    "test:prod": "TEST_BASE_URL=https://api.production.com node ../tests/test-production-readiness.js"
   },
   "dependencies": {
     "@better-auth/expo": "^1.3.7",
