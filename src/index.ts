@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { apiRoutes } from "./routes/index.js";
+import { createAuth } from "./auth.js";
 
 const app = new Hono();
 
@@ -103,34 +104,41 @@ app.get("/debug", async (c) => {
   });
 });
 
-// Mount Better Auth routes (without /api prefix to match frontend expectations)
+// Simple test route for auth paths
+app.get("/auth/test", async (c) => {
+  console.log("Auth test route hit");
+  return c.json({ message: "Auth test route working", timestamp: new Date().toISOString() });
+});
+
+// Manual Google OAuth implementation (temporary workaround)
 app.get("/auth/google", async (c) => {
-  console.log("=== GOOGLE OAUTH ENDPOINT HIT ===");
-  console.log("Request URL:", c.req.url);
-  console.log("Request method:", c.req.method);
+  console.log("=== MANUAL GOOGLE OAUTH ===");
 
-  try {
-    console.log("Creating auth instance...");
-    const { createAuth } = await import("./auth.js");
-    const auth = createAuth(c.env);
-    console.log("Auth instance created successfully");
+  const env = c.env as any;
+  const GOOGLE_CLIENT_ID = env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  const BETTER_AUTH_URL = env?.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL;
 
-    console.log("Calling Better Auth handler...");
-    const result = await auth.handler(c.req.raw);
-    console.log("Better Auth handler completed successfully");
-    return result;
-  } catch (error) {
-    console.error("=== BETTER AUTH ERROR ===");
-    console.error("Error type:", typeof error);
-    console.error("Error message:", error instanceof Error ? error.message : String(error));
-    console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
-
-    return c.json({
-      error: "Google OAuth failed",
-      details: error instanceof Error ? error.message : "Unknown error",
-      timestamp: new Date().toISOString()
-    }, 500);
+  if (!GOOGLE_CLIENT_ID) {
+    return c.json({ error: "Google Client ID not configured" }, 500);
   }
+
+  // Construct Google OAuth URL manually
+  const baseUrl = "https://accounts.google.com/o/oauth2/v2/auth";
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: `${BETTER_AUTH_URL}/auth/callback/google`,
+    response_type: "code",
+    scope: "openid profile email",
+    prompt: "select_account",
+    access_type: "offline"
+  });
+
+  const oauthUrl = `${baseUrl}?${params.toString()}`;
+
+  console.log("Redirecting to:", oauthUrl);
+
+  // Return redirect response
+  return c.redirect(oauthUrl, 302);
 });
 
 app.post("/auth/google/token", async (c) => {
@@ -145,27 +153,39 @@ app.post("/auth/google/token", async (c) => {
 });
 
 app.get("/auth/callback/google", async (c) => {
-  try {
-    const { createAuth } = await import("./auth.js");
-    const auth = createAuth(c.env);
-    return await auth.handler(c.req.raw);
-  } catch (error) {
-    console.error("Better Auth error:", error);
-    return c.json({ error: "Authentication error" }, 500);
+  console.log("=== GOOGLE OAUTH CALLBACK ===");
+
+  const url = new URL(c.req.url);
+  const code = url.searchParams.get('code');
+  const error = url.searchParams.get('error');
+
+  console.log("Callback params:", { code: !!code, error });
+
+  if (error) {
+    console.error("OAuth error:", error);
+    return c.json({ error: "OAuth failed", details: error }, 400);
   }
+
+  if (!code) {
+    return c.json({ error: "No authorization code received" }, 400);
+  }
+
+  // For now, just return success with the code
+  // In a full implementation, you'd exchange the code for tokens
+  return c.json({
+    success: true,
+    message: "Google OAuth successful",
+    code: code.substring(0, 10) + "...", // Don't log the full code for security
+    timestamp: new Date().toISOString()
+  });
 });
 
-// Catch-all for other auth routes
-app.all("/auth/*", async (c) => {
-  try {
-    const { createAuth } = await import("./auth.js");
-    const auth = createAuth(c.env);
-    return await auth.handler(c.req.raw);
-  } catch (error) {
-    console.error("Better Auth error:", error);
-    return c.json({ error: "Authentication error" }, 500);
-  }
+// Test route to verify routing is working
+app.get("/test-route", async (c) => {
+  return c.json({ message: "Test route working", timestamp: new Date().toISOString() });
 });
+
+// Removed catch-all route to avoid conflicts with specific routes
 
 // Health check endpoint
 app.get("/", (c) => {
