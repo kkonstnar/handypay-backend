@@ -78,13 +78,16 @@ app.get("/debug", async (c) => {
         message: "Debug endpoint working",
         timestamp: new Date().toISOString(),
         url: c.req.url,
-        method: c.req.method
+        method: c.req.method,
     });
 });
 // Simple test route for auth paths
 app.get("/auth/test", async (c) => {
     console.log("Auth test route hit");
-    return c.json({ message: "Auth test route working", timestamp: new Date().toISOString() });
+    return c.json({
+        message: "Auth test route working",
+        timestamp: new Date().toISOString(),
+    });
 });
 // Manual Google OAuth implementation (temporary workaround)
 app.get("/auth/google", async (c) => {
@@ -103,7 +106,7 @@ app.get("/auth/google", async (c) => {
         response_type: "code",
         scope: "openid profile email",
         prompt: "select_account",
-        access_type: "offline"
+        access_type: "offline",
     });
     const oauthUrl = `${baseUrl}?${params.toString()}`;
     console.log("Redirecting to:", oauthUrl);
@@ -112,40 +115,113 @@ app.get("/auth/google", async (c) => {
 });
 app.post("/auth/google/token", async (c) => {
     try {
-        const { createAuth } = await import("./auth.js");
-        const auth = createAuth(c.env);
-        return await auth.handler(c.req.raw);
+        const body = await c.req.json();
+        const { code, redirectUri } = body;
+        console.log("=== GOOGLE TOKEN EXCHANGE ===");
+        console.log("Code received:", code ? "yes" : "no");
+        console.log("Redirect URI:", redirectUri);
+        if (!code) {
+            return c.json({ error: "No authorization code provided" }, 400);
+        }
+        const env = c.env;
+        const GOOGLE_CLIENT_ID = env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+        const GOOGLE_CLIENT_SECRET = env?.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+        if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+            console.error("Missing Google OAuth credentials");
+            return c.json({ error: "Server configuration error" }, 500);
+        }
+        // Exchange authorization code for access token
+        const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+                client_id: GOOGLE_CLIENT_ID,
+                client_secret: GOOGLE_CLIENT_SECRET,
+                code: code,
+                grant_type: "authorization_code",
+                redirect_uri: redirectUri ||
+                    `${env?.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL}/auth/callback/google`,
+            }),
+        });
+        if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            console.error("Token exchange failed:", errorText);
+            return c.json({ error: "Failed to exchange token", details: errorText }, 400);
+        }
+        const tokenData = await tokenResponse.json();
+        console.log("Token exchange successful");
+        // Get user info from Google
+        const userResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+            headers: {
+                Authorization: `Bearer ${tokenData.access_token}`,
+            },
+        });
+        if (!userResponse.ok) {
+            console.error("Failed to get user info from Google");
+            return c.json({ error: "Failed to get user information" }, 400);
+        }
+        const userInfo = await userResponse.json();
+        console.log("User info retrieved:", {
+            id: userInfo.id,
+            email: userInfo.email,
+        });
+        // Create user data in the expected format
+        const userData = {
+            user: {
+                id: userInfo.id,
+                email: userInfo.email,
+                name: userInfo.name,
+                picture: userInfo.picture,
+                provider: "google",
+            },
+            session: {
+                access_token: tokenData.access_token,
+                refresh_token: tokenData.refresh_token,
+                expires_in: tokenData.expires_in,
+                token_type: tokenData.token_type,
+            },
+        };
+        return c.json(userData);
     }
     catch (error) {
-        console.error("Better Auth error:", error);
-        return c.json({ error: "Authentication error" }, 500);
+        console.error("Token exchange error:", error);
+        return c.json({
+            error: "Token exchange failed",
+            details: error instanceof Error ? error.message : "Unknown error",
+        }, 500);
     }
 });
 app.get("/auth/callback/google", async (c) => {
     console.log("=== GOOGLE OAUTH CALLBACK ===");
     const url = new URL(c.req.url);
-    const code = url.searchParams.get('code');
-    const error = url.searchParams.get('error');
+    const code = url.searchParams.get("code");
+    const error = url.searchParams.get("error");
     console.log("Callback params:", { code: !!code, error });
     if (error) {
         console.error("OAuth error:", error);
-        return c.json({ error: "OAuth failed", details: error }, 400);
+        // Redirect back to app with error
+        const errorRedirectUrl = `handypay://auth/callback?error=${encodeURIComponent(error)}`;
+        console.log("Redirecting to app with error:", errorRedirectUrl);
+        return c.redirect(errorRedirectUrl, 302);
     }
     if (!code) {
-        return c.json({ error: "No authorization code received" }, 400);
+        console.log("No authorization code received");
+        const errorRedirectUrl = `handypay://auth/callback?error=no_code`;
+        return c.redirect(errorRedirectUrl, 302);
     }
-    // For now, just return success with the code
-    // In a full implementation, you'd exchange the code for tokens
-    return c.json({
-        success: true,
-        message: "Google OAuth successful",
-        code: code.substring(0, 10) + "...", // Don't log the full code for security
-        timestamp: new Date().toISOString()
-    });
+    // Redirect back to mobile app with the authorization code
+    const successRedirectUrl = `handypay://auth/callback?code=${encodeURIComponent(code)}`;
+    console.log("Redirecting to app with code:", successRedirectUrl.substring(0, 50) + "...");
+    return c.redirect(successRedirectUrl, 302);
 });
 // Test route to verify routing is working
 app.get("/test-route", async (c) => {
-    return c.json({ message: "Test route working", timestamp: new Date().toISOString() });
+    return c.json({
+        message: "Test route working",
+        timestamp: new Date().toISOString(),
+    });
 });
 // Removed catch-all route to avoid conflicts with specific routes
 // Health check endpoint
