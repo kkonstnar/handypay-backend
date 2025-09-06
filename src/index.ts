@@ -37,13 +37,36 @@ app.get("/", (c) => {
 });
 
 // Database test endpoint
-// Simple database test
+// Database test endpoint
 app.get("/test-db", async (c) => {
   try {
-    await db.execute("SELECT 1");
-    return c.json({ success: true, message: "Database connected" });
+    console.log("Testing database connection...");
+    console.log("DATABASE_URL available:", !!(c.env as any).DATABASE_URL);
+    console.log(
+      "DATABASE_URL starts with:",
+      (c.env as any).DATABASE_URL?.substring(0, 20)
+    );
+
+    // Use the environment-aware database function
+    const dbInstance = getDb(c.env);
+    const result = await dbInstance.execute("SELECT 1 as test");
+    return c.json({
+      success: true,
+      message: "Database connected",
+      result: result,
+    });
   } catch (error) {
-    return c.json({ success: false, error: "Database not connected" }, 500);
+    console.error("Database error details:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Database not connected",
+        details: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString(),
+      },
+      500
+    );
   }
 });
 
@@ -282,7 +305,7 @@ app.post("/api/users/sync", async (c) => {
       .select({
         id: users.id,
         stripeAccountId: users.stripeAccountId,
-        stripeOnboardingCompleted: users.stripeOnboardingCompleted
+        stripeOnboardingCompleted: users.stripeOnboardingCompleted,
       })
       .from(users)
       .where(eq(users.id, id))
@@ -1432,7 +1455,7 @@ app.post("/api/auth/test-login", async (c) => {
       .select({
         id: users.id,
         stripeAccountId: users.stripeAccountId,
-        stripeOnboardingCompleted: users.stripeOnboardingCompleted
+        stripeOnboardingCompleted: users.stripeOnboardingCompleted,
       })
       .from(users)
       .where(eq(users.id, testUser.id))
