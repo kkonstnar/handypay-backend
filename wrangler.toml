@@ -9,19 +9,17 @@ command = "npm run build"
 [build.upload]
 format = "modules"
 
-# Environment variables
+# Environment variables - Set via Cloudflare Workers dashboard or wrangler secrets
+# DO NOT commit actual secret values to repository
 [vars]
-DATABASE_URL = "postgresql://postgres.cmovosoqdskzdojsmndh:huxwAw-wovjuk-honzy1@aws-1-us-east-1.pooler.supabase.com:5432/postgres?pgbouncer=true&connection_limit=1"
 BETTER_AUTH_URL = "https://handypay-backend.handypay.workers.dev"
-BETTER_AUTH_SECRET = "SEmw3km2t64VbFEOd4BV5zlGQ1HdkAKl"
 
-# OAuth configurations
-GOOGLE_CLIENT_ID = "372273128345-josn5129vti7h8o17h0lbeskd0p46c6g.apps.googleusercontent.com"
-APPLE_CLIENT_ID = "com.handyhurry.signin"
+# OAuth configurations (set via wrangler secrets)
+# GOOGLE_CLIENT_ID, APPLE_CLIENT_ID, etc. should be set via wrangler secrets
+# or Cloudflare Workers environment variables, not committed to repo
 
-# Stripe (test keys for now)
-STRIPE_TEST_SECRET_KEY = "sk_test_51PuKMgHp4jzbtGa46Vm7sqH19ZPvxGBvSwTnHIXPqvtBRbjfZbxSDSmgWGT9k0qdO30urRCgy1j4rrqKjOb2KmeQ004e47suiV"
-STRIPE_TEST_WEBHOOK_SECRET = "whsec_U3PYdi0oAkHIPngr1lOflqAorZ5n2aeH"
-
-# Supabase
-SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhnaGRkb3hlaWx6bXNqbW14ZXRqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTMzNTkzNywiZXhwIjoyMDY0OTExOTM3fQ.RAGh7_v41t9kbAi738I_MUPgt8a7xmxC02DyHfDE-zs"
+# Example of how to set secrets:
+# npx wrangler secret put DATABASE_URL
+# npx wrangler secret put BETTER_AUTH_SECRET
+# npx wrangler secret put GOOGLE_CLIENT_ID
+# etc.
