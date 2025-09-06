@@ -74,10 +74,12 @@ app.use("/api/stripe/*", authMiddleware);
 app.use("/api/transactions/*", authMiddleware);
 app.use("/api/payouts/*", authMiddleware);
 
-// Mount Better Auth routes (commented out for now - needs proper integration)
-// app.all('/api/auth/*', async (c) => {
-//   return await auth.handler(c.req.raw);
-// });
+// Mount Better Auth routes
+app.all("/api/auth/*", async (c) => {
+  const { createAuth } = await import("./auth.js");
+  const auth = createAuth(c.env);
+  return await auth.handler(c.req.raw);
+});
 
 // Health check endpoint
 app.get("/", (c) => {

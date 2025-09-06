@@ -2,35 +2,50 @@ import { betterAuth } from "better-auth";
 import { expo } from "@better-auth/expo";
 import { Pool } from "pg";
 
-export const auth = betterAuth({
-  database: new Pool({
-    connectionString: process.env.DATABASE_URL!,
-  }),
-  plugins: [expo()],
-  emailAndPassword: {
-    enabled: true,
-  },
-  socialProviders: {
-    google: {
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirectURI:
-        (process.env.BETTER_AUTH_URL || "http://localhost:3000") +
-        "/auth/callback/google",
-      scopes: ["openid", "profile", "email"],
-      prompt: "select_account",
+// Factory function to create auth instance with environment variables
+export function createAuth(env: any) {
+  // Try Cloudflare env first, then fall back to process.env for local development
+  const DATABASE_URL = env?.DATABASE_URL || process.env.DATABASE_URL;
+  const GOOGLE_CLIENT_ID = env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  const GOOGLE_CLIENT_SECRET = env?.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+  const APPLE_CLIENT_ID = env?.APPLE_CLIENT_ID || process.env.APPLE_CLIENT_ID;
+  const APPLE_CLIENT_SECRET = env?.APPLE_CLIENT_SECRET || process.env.APPLE_CLIENT_SECRET;
+  const BETTER_AUTH_URL = env?.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL;
+  const BETTER_AUTH_SECRET = env?.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET;
+
+  if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
+  if (!GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID is required");
+  if (!GOOGLE_CLIENT_SECRET) throw new Error("GOOGLE_CLIENT_SECRET is required");
+  if (!APPLE_CLIENT_ID) throw new Error("APPLE_CLIENT_ID is required");
+  if (!APPLE_CLIENT_SECRET) throw new Error("APPLE_CLIENT_SECRET is required");
+  if (!BETTER_AUTH_URL) throw new Error("BETTER_AUTH_URL is required");
+  if (!BETTER_AUTH_SECRET) throw new Error("BETTER_AUTH_SECRET is required");
+
+  return betterAuth({
+    database: new Pool({
+      connectionString: DATABASE_URL,
+    }),
+    plugins: [expo()],
+    emailAndPassword: {
+      enabled: true,
     },
-    apple: {
-      clientId: process.env.APPLE_CLIENT_ID!,
-      clientSecret: process.env.APPLE_CLIENT_SECRET!,
-      redirectURI:
-        (process.env.BETTER_AUTH_URL || "http://localhost:3000") +
-        "/auth/callback/apple",
-      scopes: ["name", "email"],
+    socialProviders: {
+      google: {
+        clientId: GOOGLE_CLIENT_ID,
+        clientSecret: GOOGLE_CLIENT_SECRET,
+        redirectURI: BETTER_AUTH_URL + "/auth/callback/google",
+        scopes: ["openid", "profile", "email"],
+        prompt: "select_account",
+      },
+      apple: {
+        clientId: APPLE_CLIENT_ID,
+        clientSecret: APPLE_CLIENT_SECRET,
+        redirectURI: BETTER_AUTH_URL + "/auth/callback/apple",
+        scopes: ["name", "email"],
+      },
     },
-  },
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
-  secret: process.env.BETTER_AUTH_SECRET!,
+    baseURL: BETTER_AUTH_URL,
+    secret: BETTER_AUTH_SECRET,
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
   },

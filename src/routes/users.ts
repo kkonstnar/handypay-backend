@@ -170,6 +170,7 @@ userRoutes.post("/sync", async (c) => {
 // Delete user endpoint - removes user and all related data
 userRoutes.delete("/:userId", async (c) => {
   try {
+    const db = getDb(c.env);
     const userId = c.req.param("userId");
 
     if (!userId) {

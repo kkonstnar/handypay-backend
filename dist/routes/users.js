@@ -1,11 +1,12 @@
 import { Hono } from "hono";
-import { db } from "../db.js";
+import { getDb } from "../utils/database.js";
 import { users } from "../schema.js";
 import { eq } from "drizzle-orm";
 const userRoutes = new Hono();
 // User synchronization endpoint for syncing authenticated users to backend DB
 userRoutes.post("/sync", async (c) => {
     try {
+        const db = getDb(c.env);
         const userData = await c.req.json();
         console.log("🔄 User sync request:", userData);
         console.log("🔄 Stripe data:", {
@@ -124,6 +125,7 @@ userRoutes.post("/sync", async (c) => {
 // Delete user endpoint - removes user and all related data
 userRoutes.delete("/:userId", async (c) => {
     try {
+        const db = getDb(c.env);
         const userId = c.req.param("userId");
         if (!userId) {
             return c.json({ error: "Missing userId parameter" }, 400);
