@@ -64,7 +64,7 @@ const validateEmail = (email: string): boolean => {
   return emailRegex.test(email);
 };
 
-// Apply authentication to sensitive routes (excluding user sync for initial registration)
+// Apply authentication to sensitive routes (excluding user sync and initial Stripe setup)
 app.use("/api/users/*", async (c, next) => {
   // Skip auth for user sync endpoint (used for initial user registration)
   if (c.req.path === "/api/users/sync") {
@@ -72,7 +72,19 @@ app.use("/api/users/*", async (c, next) => {
   }
   return authMiddleware(c, next);
 });
-app.use("/api/stripe/*", authMiddleware);
+
+// Allow initial Stripe account creation without authentication
+app.use("/api/stripe/*", async (c, next) => {
+  // Skip auth for initial account creation and status checks (used during onboarding)
+  if (
+    c.req.path === "/api/stripe/create-account-link" ||
+    c.req.path.startsWith("/api/stripe/account-status") ||
+    c.req.path.startsWith("/api/stripe/user-account/")
+  ) {
+    return next();
+  }
+  return authMiddleware(c, next);
+});
 app.use("/api/transactions/*", authMiddleware);
 app.use("/api/payouts/*", authMiddleware);
 

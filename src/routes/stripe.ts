@@ -92,7 +92,8 @@ stripeRoutes.post("/complete-onboarding", async (c) => {
     }
 
     // Update user with onboarding completion
-    const { db } = await import("../db.js");
+    const { getDb } = await import("../utils/database.js");
+    const db = getDb(c.env);
     const { users } = await import("../schema.js");
     const { eq } = await import("drizzle-orm");
 
@@ -151,7 +152,8 @@ stripeRoutes.get("/user-account/:userId", async (c) => {
     console.log("🔍 Getting user account for:", userId);
 
     // Get user account data from database
-    const { db } = await import("../db.js");
+    const { getDb } = await import("../utils/database.js");
+    const db = getDb(c.env);
     const { users } = await import("../schema.js");
     const { eq } = await import("drizzle-orm");
 
@@ -209,7 +211,8 @@ stripeRoutes.post("/create-account-link", async (c) => {
     }
 
     // Check if user exists
-    const { db } = await import("../db.js");
+    const { getDb } = await import("../utils/database.js");
+    const db = getDb(c.env);
     const { users } = await import("../schema.js");
     const { eq } = await import("drizzle-orm");
 
@@ -534,7 +537,8 @@ stripeRoutes.get("/balance/:userId", async (c) => {
     console.log("💰 Getting Stripe balance for user:", userId);
 
     // Get user's Stripe account ID
-    const { db } = await import("../db.js");
+    const { getDb } = await import("../utils/database.js");
+    const db = getDb(c.env);
     const { users } = await import("../schema.js");
     const { eq } = await import("drizzle-orm");
 
@@ -602,7 +606,8 @@ stripeRoutes.get("/payouts/:userId", async (c) => {
     console.log("📊 Getting Stripe payouts for user:", userId);
 
     // Get user's Stripe account ID
-    const { db } = await import("../db.js");
+    const { getDb } = await import("../utils/database.js");
+    const db = getDb(c.env);
     const { users } = await import("../schema.js");
     const { eq } = await import("drizzle-orm");
 
@@ -669,7 +674,8 @@ stripeRoutes.get("/next-payout/:userId", async (c) => {
     console.log("🔮 Getting next payout info for user:", userId);
 
     // Get user's Stripe account ID
-    const { db } = await import("../db.js");
+    const { getDb } = await import("../utils/database.js");
+    const db = getDb(c.env);
     const { users } = await import("../schema.js");
     const { eq } = await import("drizzle-orm");
 
