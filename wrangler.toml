@@ -13,6 +13,7 @@ format = "modules"
 # DO NOT commit actual secret values to repository
 [vars]
 BETTER_AUTH_URL = "https://handypay-backend.handypay.workers.dev"
+DATABASE_URL = "postgresql://postgres.cmovosoqdskzdojsmndh:huxwAw-wovjuk-honzy1@aws-1-us-east-1.pooler.supabase.com:5432/postgres?pgbouncer=true&connection_limit=1"
 
 # OAuth configurations (set via wrangler secrets)
 # GOOGLE_CLIENT_ID, APPLE_CLIENT_ID, etc. should be set via wrangler secrets

@@ -62,8 +62,14 @@ const validateEmail = (email: string): boolean => {
   return emailRegex.test(email);
 };
 
-// Apply authentication to sensitive routes
-app.use("/api/users/*", authMiddleware);
+// Apply authentication to sensitive routes (excluding user sync for initial registration)
+app.use("/api/users/*", async (c, next) => {
+  // Skip auth for user sync endpoint (used for initial user registration)
+  if (c.req.path === "/api/users/sync") {
+    return next();
+  }
+  return authMiddleware(c, next);
+});
 app.use("/api/stripe/*", authMiddleware);
 app.use("/api/transactions/*", authMiddleware);
 app.use("/api/payouts/*", authMiddleware);

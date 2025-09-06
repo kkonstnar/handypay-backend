@@ -7,11 +7,15 @@ let dbInstance: ReturnType<typeof drizzle> | null = null;
 
 function getDatabaseInstance() {
   if (!dbInstance) {
-    const DATABASE_URL = process.env.DATABASE_URL;
+    // Try different environment variable access patterns for Cloudflare Workers
+    const DATABASE_URL =
+      process.env.DATABASE_URL || (globalThis as any).DATABASE_URL;
     if (!DATABASE_URL) {
+      console.error("DATABASE_URL not found in environment");
       throw new Error("DATABASE_URL is required");
     }
 
+    console.log("DATABASE_URL found, creating database connection");
     const client = postgres(DATABASE_URL);
     dbInstance = drizzle(client, { schema });
   }
