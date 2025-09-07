@@ -128,6 +128,52 @@ app.get("/auth/test", async (c) => {
   });
 });
 
+// Stripe onboarding redirects (root level for compatibility with frontend URLs)
+app.get("/stripe/return", async (c) => {
+  const accountId = c.req.query("account");
+  const error = c.req.query("error");
+
+  console.log("🎉 Stripe onboarding return (root):", { accountId, error });
+
+  if (error) {
+    console.error("❌ Stripe onboarding error:", error);
+    // Redirect back to app with error
+    return c.redirect(
+      `handypay://stripe/error?error=${encodeURIComponent(error)}`,
+      302
+    );
+  }
+
+  if (accountId) {
+    console.log("✅ Stripe account completed:", accountId);
+    // Redirect back to app with success
+    return c.redirect(
+      `handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`,
+      302
+    );
+  }
+
+  // Default redirect
+  return c.redirect("handypay://stripe/complete", 302);
+});
+
+app.get("/stripe/refresh", async (c) => {
+  const accountId = c.req.query("account");
+
+  console.log("🔄 Stripe onboarding refresh (root):", { accountId });
+
+  if (accountId) {
+    // Redirect back to app to restart onboarding
+    return c.redirect(
+      `handypay://stripe/refresh?accountId=${encodeURIComponent(accountId)}`,
+      302
+    );
+  }
+
+  // Default refresh redirect
+  return c.redirect("handypay://stripe/refresh", 302);
+});
+
 // Manual Google OAuth implementation (temporary workaround)
 app.get("/auth/google", async (c) => {
   console.log("=== MANUAL GOOGLE OAUTH ===");
