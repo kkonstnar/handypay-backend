@@ -133,8 +133,26 @@ app.get("/auth/test", async (c) => {
 app.get("/stripe/return", async (c) => {
   const accountId = c.req.query("account");
   const error = c.req.query("error");
+  const allParams = c.req.query(); // Get all query parameters
 
   console.log("🎉 Stripe onboarding return (root):", { accountId, error });
+  console.log("🔍 All query parameters received:", allParams);
+  console.log("🔍 Full request URL:", c.req.url);
+
+  // Also check for other common parameter names
+  const accountIdAlt =
+    c.req.query("accountId") ||
+    c.req.query("acct") ||
+    c.req.query("stripe_account");
+  if (accountIdAlt && !accountId) {
+    console.log(
+      "🔄 Found account ID with alternative parameter name:",
+      accountIdAlt
+    );
+  }
+
+  // Use alternative account ID if primary is not found
+  const finalAccountId = accountId || accountIdAlt;
 
   if (error) {
     console.error("❌ Stripe onboarding error:", error);
@@ -145,15 +163,15 @@ app.get("/stripe/return", async (c) => {
     );
   }
 
-  if (accountId) {
+  if (finalAccountId) {
     // Check if onboarding is actually completed by querying account status
     try {
-      console.log("🔍 Checking account status for:", accountId);
+      console.log("🔍 Checking account status for:", finalAccountId);
 
       const { getStripe } = await import("./services/stripe.js");
       const stripe = getStripe(c.env);
 
-      const account = await stripe.accounts.retrieve(accountId);
+      const account = await stripe.accounts.retrieve(finalAccountId);
       console.log("📊 Account status check:", {
         chargesEnabled: account.charges_enabled,
         detailsSubmitted: account.details_submitted,
@@ -165,26 +183,26 @@ app.get("/stripe/return", async (c) => {
         account.charges_enabled || account.details_submitted;
 
       if (isOnboardingComplete) {
-        console.log("✅ Stripe onboarding actually completed for:", accountId, {
+        console.log("✅ Stripe onboarding actually completed for:", finalAccountId, {
           chargesEnabled: account.charges_enabled,
           detailsSubmitted: account.details_submitted,
         });
         // Redirect back to app with success
         return c.redirect(
           `handypay://stripe/success?accountId=${encodeURIComponent(
-            accountId
+            finalAccountId
           )}`,
           302
         );
       } else {
-        console.log("⏳ Stripe onboarding not completed yet for:", accountId, {
+        console.log("⏳ Stripe onboarding not completed yet for:", finalAccountId, {
           chargesEnabled: account.charges_enabled,
           detailsSubmitted: account.details_submitted,
         });
         // Redirect back to app indicating onboarding is still in progress
         return c.redirect(
           `handypay://stripe/incomplete?accountId=${encodeURIComponent(
-            accountId
+            finalAccountId
           )}`,
           302
         );
@@ -197,7 +215,7 @@ app.get("/stripe/return", async (c) => {
         "🔄 Account status check failed, redirecting to success for app to verify"
       );
       return c.redirect(
-        `handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`,
+        `handypay://stripe/success?accountId=${encodeURIComponent(finalAccountId)}`,
         302
       );
     }
