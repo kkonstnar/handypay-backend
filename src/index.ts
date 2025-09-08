@@ -20,7 +20,10 @@ app.use(
 const authMiddleware = async (c: any, next: any) => {
   try {
     console.log("🔐 Auth middleware triggered for:", c.req.path);
-    console.log("🔐 Request headers:", Object.fromEntries(c.req.raw.headers.entries()));
+    console.log(
+      "🔐 Request headers:",
+      Object.fromEntries(c.req.raw.headers.entries())
+    );
 
     const { createAuth } = await import("./auth.js");
     const auth = createAuth(c.env);
