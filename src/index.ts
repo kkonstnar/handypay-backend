@@ -66,8 +66,8 @@ const validateEmail = (email: string): boolean => {
 
 // Apply authentication to sensitive routes (excluding user sync and initial Stripe setup)
 app.use("/api/users/*", async (c, next) => {
-  // Skip auth for user sync endpoint (used for initial user registration)
-  if (c.req.path === "/api/users/sync") {
+  // Skip auth for user sync and account deletion (both have additional security measures)
+  if (c.req.path === "/api/users/sync" || c.req.method === "DELETE") {
     return next();
   }
   return authMiddleware(c, next);
