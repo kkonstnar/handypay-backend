@@ -19,13 +19,24 @@ app.use(
 // Authentication middleware for protected routes
 const authMiddleware = async (c: any, next: any) => {
   try {
+    console.log("🔐 Auth middleware triggered for:", c.req.path);
+    console.log("🔐 Request headers:", Object.fromEntries(c.req.raw.headers.entries()));
+
     const { createAuth } = await import("./auth.js");
     const auth = createAuth(c.env);
+
+    console.log("🔐 Attempting to get session...");
     const session = await auth.api.getSession({
       headers: c.req.raw.headers,
     });
 
+    console.log("🔐 Session result:", session ? "Found" : "Not found");
+    if (session?.user) {
+      console.log("🔐 User found:", session.user.id);
+    }
+
     if (!session) {
+      console.log("❌ No session found, returning 401");
       return c.json({ error: "Unauthorized - Please log in" }, 401);
     }
 
@@ -33,9 +44,10 @@ const authMiddleware = async (c: any, next: any) => {
     c.set("user", session.user);
     c.set("session", session);
 
+    console.log("✅ Auth middleware passed, proceeding to route handler");
     await next();
   } catch (error) {
-    console.error("Auth middleware error:", error);
+    console.error("❌ Auth middleware error:", error);
     return c.json({ error: "Authentication failed" }, 401);
   }
 };
@@ -183,10 +195,14 @@ app.get("/stripe/return", async (c) => {
         account.charges_enabled || account.details_submitted;
 
       if (isOnboardingComplete) {
-        console.log("✅ Stripe onboarding actually completed for:", finalAccountId, {
-          chargesEnabled: account.charges_enabled,
-          detailsSubmitted: account.details_submitted,
-        });
+        console.log(
+          "✅ Stripe onboarding actually completed for:",
+          finalAccountId,
+          {
+            chargesEnabled: account.charges_enabled,
+            detailsSubmitted: account.details_submitted,
+          }
+        );
         // Redirect back to app with success
         return c.redirect(
           `handypay://stripe/success?accountId=${encodeURIComponent(
@@ -195,10 +211,14 @@ app.get("/stripe/return", async (c) => {
           302
         );
       } else {
-        console.log("⏳ Stripe onboarding not completed yet for:", finalAccountId, {
-          chargesEnabled: account.charges_enabled,
-          detailsSubmitted: account.details_submitted,
-        });
+        console.log(
+          "⏳ Stripe onboarding not completed yet for:",
+          finalAccountId,
+          {
+            chargesEnabled: account.charges_enabled,
+            detailsSubmitted: account.details_submitted,
+          }
+        );
         // Redirect back to app indicating onboarding is still in progress
         return c.redirect(
           `handypay://stripe/incomplete?accountId=${encodeURIComponent(
@@ -215,7 +235,9 @@ app.get("/stripe/return", async (c) => {
         "🔄 Account status check failed, redirecting to success for app to verify"
       );
       return c.redirect(
-        `handypay://stripe/success?accountId=${encodeURIComponent(finalAccountId)}`,
+        `handypay://stripe/success?accountId=${encodeURIComponent(
+          finalAccountId
+        )}`,
         302
       );
     }
