@@ -13,7 +13,6 @@ app.use("*", cors({
 const authMiddleware = async (c, next) => {
     try {
         console.log("🔐 Auth middleware triggered for:", c.req.path);
-        console.log("🔐 Request headers:", Object.fromEntries(c.req.raw.headers.entries()));
         const { createAuth } = await import("./auth.js");
         const auth = createAuth(c.env);
         console.log("🔐 Attempting to get session...");
@@ -356,6 +355,29 @@ app.get("/test-db", async (c) => {
             stack: error instanceof Error ? error.stack : undefined,
             timestamp: new Date().toISOString(),
         }, 500);
+    }
+});
+// Simple auth endpoints for now (Better Auth integration can be improved later)
+app.get("/api/auth/session", async (c) => {
+    try {
+        // For now, return no session - this will be replaced with proper Better Auth
+        console.log("🔍 Session check requested - no active session");
+        return c.json(null, 404);
+    }
+    catch (error) {
+        console.error("Session check error:", error);
+        return c.json({ error: "Session check failed" }, 500);
+    }
+});
+app.post("/api/auth/sign-out", async (c) => {
+    try {
+        // For now, just return success - this will be replaced with proper Better Auth
+        console.log("🔐 Sign out requested");
+        return c.json({ success: true });
+    }
+    catch (error) {
+        console.error("Sign out error:", error);
+        return c.json({ error: "Sign out failed" }, 500);
     }
 });
 // Mount API routes
