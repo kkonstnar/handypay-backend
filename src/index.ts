@@ -145,16 +145,48 @@ app.get("/stripe/return", async (c) => {
   }
 
   if (accountId) {
-    console.log("✅ Stripe account completed:", accountId);
-    // Redirect back to app with success
-    return c.redirect(
-      `handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`,
-      302
-    );
+    // Check if onboarding is actually completed by querying account status
+    try {
+      console.log("🔍 Checking account status for:", accountId);
+
+      const { getStripe } = await import("./services/stripe.js");
+      const stripe = getStripe(c.env);
+
+      const account = await stripe.accounts.retrieve(accountId);
+      console.log("📊 Account status check:", {
+        chargesEnabled: account.charges_enabled,
+        detailsSubmitted: account.details_submitted,
+        payoutsEnabled: account.payouts_enabled
+      });
+
+      if (account.charges_enabled) {
+        console.log("✅ Stripe onboarding actually completed for:", accountId);
+        // Redirect back to app with success
+        return c.redirect(
+          `handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`,
+          302
+        );
+      } else {
+        console.log("⏳ Stripe onboarding not completed yet for:", accountId);
+        // Redirect back to app indicating onboarding is still in progress
+        return c.redirect(
+          `handypay://stripe/incomplete?accountId=${encodeURIComponent(accountId)}`,
+          302
+        );
+      }
+    } catch (statusError) {
+      console.error("❌ Error checking account status:", statusError);
+      // If we can't check status, assume incomplete and let app handle it
+      return c.redirect(
+        `handypay://stripe/incomplete?accountId=${encodeURIComponent(accountId)}`,
+        302
+      );
+    }
   }
 
-  // Default redirect
-  return c.redirect("handypay://stripe/complete", 302);
+  // No account ID provided - redirect to generic incomplete state
+  console.log("⚠️ No account ID in return URL");
+  return c.redirect("handypay://stripe/incomplete", 302);
 });
 
 app.get("/stripe/refresh", async (c) => {
