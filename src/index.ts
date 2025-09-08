@@ -82,7 +82,8 @@ app.use("/api/stripe/*", async (c, next) => {
     c.req.path.startsWith("/api/stripe/user-account/") ||
     c.req.path === "/api/stripe/return" ||
     c.req.path === "/api/stripe/refresh" ||
-    c.req.path === "/api/stripe/create-payment-link"
+    c.req.path === "/api/stripe/create-payment-link" ||
+    c.req.path.startsWith("/api/stripe/payment-link-status/")
   ) {
     return next();
   }
@@ -160,12 +161,13 @@ app.get("/stripe/return", async (c) => {
       });
 
       // Check if onboarding is complete - either charges enabled OR details submitted
-      const isOnboardingComplete = account.charges_enabled || account.details_submitted;
+      const isOnboardingComplete =
+        account.charges_enabled || account.details_submitted;
 
       if (isOnboardingComplete) {
         console.log("✅ Stripe onboarding actually completed for:", accountId, {
           chargesEnabled: account.charges_enabled,
-          detailsSubmitted: account.details_submitted
+          detailsSubmitted: account.details_submitted,
         });
         // Redirect back to app with success
         return c.redirect(
@@ -177,7 +179,7 @@ app.get("/stripe/return", async (c) => {
       } else {
         console.log("⏳ Stripe onboarding not completed yet for:", accountId, {
           chargesEnabled: account.charges_enabled,
-          detailsSubmitted: account.details_submitted
+          detailsSubmitted: account.details_submitted,
         });
         // Redirect back to app indicating onboarding is still in progress
         return c.redirect(
@@ -191,11 +193,11 @@ app.get("/stripe/return", async (c) => {
       console.error("❌ Error checking account status:", statusError);
       // If we can't check status, try a simpler approach - just redirect to success
       // The app will verify the actual status and handle accordingly
-      console.log("🔄 Account status check failed, redirecting to success for app to verify");
+      console.log(
+        "🔄 Account status check failed, redirecting to success for app to verify"
+      );
       return c.redirect(
-        `handypay://stripe/success?accountId=${encodeURIComponent(
-          accountId
-        )}`,
+        `handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`,
         302
       );
     }
