@@ -156,21 +156,25 @@ app.get("/stripe/return", async (c) => {
       console.log("📊 Account status check:", {
         chargesEnabled: account.charges_enabled,
         detailsSubmitted: account.details_submitted,
-        payoutsEnabled: account.payouts_enabled
+        payoutsEnabled: account.payouts_enabled,
       });
 
       if (account.charges_enabled) {
         console.log("✅ Stripe onboarding actually completed for:", accountId);
         // Redirect back to app with success
         return c.redirect(
-          `handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`,
+          `handypay://stripe/success?accountId=${encodeURIComponent(
+            accountId
+          )}`,
           302
         );
       } else {
         console.log("⏳ Stripe onboarding not completed yet for:", accountId);
         // Redirect back to app indicating onboarding is still in progress
         return c.redirect(
-          `handypay://stripe/incomplete?accountId=${encodeURIComponent(accountId)}`,
+          `handypay://stripe/incomplete?accountId=${encodeURIComponent(
+            accountId
+          )}`,
           302
         );
       }
@@ -178,7 +182,9 @@ app.get("/stripe/return", async (c) => {
       console.error("❌ Error checking account status:", statusError);
       // If we can't check status, assume incomplete and let app handle it
       return c.redirect(
-        `handypay://stripe/incomplete?accountId=${encodeURIComponent(accountId)}`,
+        `handypay://stripe/incomplete?accountId=${encodeURIComponent(
+          accountId
+        )}`,
         302
       );
     }
@@ -186,7 +192,7 @@ app.get("/stripe/return", async (c) => {
 
   // No account ID provided - redirect to generic incomplete state
   console.log("⚠️ No account ID in return URL");
-  return c.redirect("handypay://stripe/incomplete", 302);
+  return c.redirect("handypay://stripe/incomplete?accountId=null", 302);
 });
 
 app.get("/stripe/refresh", async (c) => {

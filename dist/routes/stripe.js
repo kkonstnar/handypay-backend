@@ -6,7 +6,10 @@ const stripeRoutes = new Hono();
 stripeRoutes.get("/return", async (c) => {
     const accountId = c.req.query("account");
     const error = c.req.query("error");
+    const allParams = c.req.query(); // Get all query parameters
     console.log("🎉 Stripe onboarding return:", { accountId, error });
+    console.log("🔍 All query parameters:", allParams);
+    console.log("🔍 Full URL:", c.req.url);
     if (error) {
         console.error("❌ Stripe onboarding error:", error);
         // Redirect back to app with error
@@ -23,7 +26,10 @@ stripeRoutes.get("/return", async (c) => {
 // Stripe onboarding refresh endpoint
 stripeRoutes.get("/refresh", async (c) => {
     const accountId = c.req.query("account");
+    const allParams = c.req.query(); // Get all query parameters
     console.log("🔄 Stripe onboarding refresh:", { accountId });
+    console.log("🔍 Refresh all query parameters:", allParams);
+    console.log("🔍 Refresh full URL:", c.req.url);
     if (accountId) {
         // Redirect back to app to restart onboarding
         return c.redirect(`handypay://stripe/refresh?accountId=${encodeURIComponent(accountId)}`);
@@ -141,7 +147,7 @@ stripeRoutes.get("/user-account/:userId", async (c) => {
         });
         return c.json({
             error: "Failed to get user account",
-            details: error instanceof Error ? error.message : "Unknown error"
+            details: error instanceof Error ? error.message : "Unknown error",
         }, 500);
     }
 });
@@ -187,17 +193,43 @@ stripeRoutes.post("/create-account-link", async (c) => {
             email: user.email || email || "",
         });
         console.log("✅ Stripe account link created:", result);
+        console.log("🔍 Account ID from result:", result.accountId);
+        console.log("🔍 User's current stripeAccountId:", user.stripeAccountId);
         // Update user with Stripe account ID if it's a new account
         if (result.accountId &&
             (!user.stripeAccountId || user.stripeAccountId !== result.accountId)) {
-            await db
-                .update(users)
-                .set({
-                stripeAccountId: result.accountId,
-                updatedAt: new Date(),
-            })
-                .where(eq(users.id, userId));
-            console.log(`✅ Updated user ${userId} with Stripe account ID: ${result.accountId}`);
+            console.log(`🔄 Updating user ${userId} with new Stripe account ID: ${result.accountId}`);
+            try {
+                const updateResult = await db
+                    .update(users)
+                    .set({
+                    stripeAccountId: result.accountId,
+                    updatedAt: new Date(),
+                })
+                    .where(eq(users.id, userId));
+                console.log(`✅ Database update result:`, updateResult);
+                console.log(`✅ Successfully updated user ${userId} with Stripe account ID: ${result.accountId}`);
+                // Verify the update worked
+                const verifyUser = await db
+                    .select({ stripeAccountId: users.stripeAccountId })
+                    .from(users)
+                    .where(eq(users.id, userId))
+                    .limit(1);
+                console.log(`🔍 Verification - user ${userId} now has stripeAccountId:`, verifyUser[0]?.stripeAccountId);
+            }
+            catch (updateError) {
+                console.error(`❌ Failed to update user ${userId} with Stripe account ID:`, updateError);
+                throw updateError;
+            }
+        }
+        else {
+            console.log(`ℹ️ No account ID update needed for user ${userId}`);
+            if (!result.accountId) {
+                console.log(`⚠️ No account ID returned from Stripe service`);
+            }
+            else if (user.stripeAccountId === result.accountId) {
+                console.log(`ℹ️ User already has this account ID: ${result.accountId}`);
+            }
         }
         return c.json({
             success: true,

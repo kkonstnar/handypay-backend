@@ -45,6 +45,7 @@ export class StripeService {
   ) {
     try {
       console.log("Creating Stripe account link for user:", userId);
+      console.log("Input parameters:", { userId, account_id, firstName, lastName, email });
 
       const stripe = getStripe(env);
       const { getDb } = await import("../utils/database.js");
@@ -52,6 +53,8 @@ export class StripeService {
 
       let accountId: string | undefined = account_id;
       let account;
+
+      console.log("Initial accountId from input:", accountId);
 
       // Always create new account if no account_id provided
       // This ensures we always have an account to work with
@@ -91,6 +94,12 @@ export class StripeService {
         console.log(
           `✅ Created new Stripe account: ${accountId} for user ${userId}`
         );
+        console.log("Account creation details:", {
+          accountId,
+          email: account.email,
+          country: account.country,
+          type: account.type
+        });
       } else {
         console.log("Using existing Stripe account:", accountId);
 
@@ -220,6 +229,7 @@ export class StripeService {
       });
 
       console.log("Stripe account link created successfully:", accountLink.url);
+      console.log("Returning account data:", { url: accountLink.url, accountId });
 
       return {
         url: accountLink.url,
