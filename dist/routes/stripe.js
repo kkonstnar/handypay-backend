@@ -99,8 +99,13 @@ stripeRoutes.get("/user-account/:userId", async (c) => {
         if (!userId) {
             return c.json({ error: "Missing userId parameter" }, 400);
         }
-        // Verify ownership - users can only access their own account data
-        requireOwnership(authenticatedUser.id, userId);
+        // If user is authenticated, verify ownership
+        if (authenticatedUser) {
+            requireOwnership(authenticatedUser.id, userId);
+        }
+        else {
+            console.log("⚠️ No authentication for user account request - allowing anonymous access for:", userId);
+        }
         console.log("🔍 Getting user account for:", userId);
         // Get user account data from database
         const { getDb } = await import("../utils/database.js");
@@ -128,7 +133,16 @@ stripeRoutes.get("/user-account/:userId", async (c) => {
     }
     catch (error) {
         console.error("❌ Error getting user account:", error);
-        return c.json({ error: "Failed to get user account" }, 500);
+        console.error("❌ Error details:", {
+            message: error instanceof Error ? error.message : "Unknown error",
+            stack: error instanceof Error ? error.stack : undefined,
+            userId: c.req.param("userId"),
+            authenticatedUser: c.get("user")?.id || "No authenticated user",
+        });
+        return c.json({
+            error: "Failed to get user account",
+            details: error instanceof Error ? error.message : "Unknown error"
+        }, 500);
     }
 });
 // Stripe Connect endpoint for creating account links

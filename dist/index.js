@@ -57,7 +57,7 @@ app.use("/api/users/*", async (c, next) => {
 });
 // Allow initial Stripe account creation without authentication
 app.use("/api/stripe/*", async (c, next) => {
-    // Skip auth for initial account creation, status checks, Stripe redirects, and payment links (used during onboarding and payments)
+    // Skip auth for initial account creation, status checks, user account data, Stripe redirects, and payment links (used during onboarding and payments)
     if (c.req.path === "/api/stripe/create-account-link" ||
         c.req.path.startsWith("/api/stripe/account-status") ||
         c.req.path.startsWith("/api/stripe/user-account/") ||
