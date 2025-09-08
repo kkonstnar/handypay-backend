@@ -419,7 +419,7 @@ stripeRoutes.get("/payment-link-status/:paymentLinkId", async (c) => {
     console.log("🔍 Full request details:", {
       method: c.req.method,
       url: c.req.url,
-      headers: Object.fromEntries(c.req.raw.headers.entries())
+      headers: Object.fromEntries(c.req.raw.headers.entries()),
     });
 
     const { getStripe } = await import("../services/stripe.js");
@@ -554,24 +554,30 @@ stripeRoutes.get("/payment-link-status/:paymentLinkId", async (c) => {
       amount_total: (paymentLink as any).amount,
       payment_intent_id: paymentIntentId,
     });
-    } catch (error) {
-      console.error("❌ Payment link status error:", error);
-      console.error("❌ Error details:", {
-        message: error instanceof Error ? error.message : "Unknown error",
-        type: error instanceof Error ? error.constructor.name : "Unknown type",
-        stack: error instanceof Error ? error.stack : undefined
-      });
+  } catch (error) {
+    console.error("❌ Payment link status error:", error);
+    console.error("❌ Error details:", {
+      message: error instanceof Error ? error.message : "Unknown error",
+      type: error instanceof Error ? error.constructor.name : "Unknown type",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
 
-      // Check if it's a Stripe error
-      if (error instanceof Error && 'statusCode' in error) {
-        console.error("❌ Stripe API error with status:", (error as any).statusCode);
-      }
-
-      return c.json({
-        error: "Failed to get payment link status",
-        details: error instanceof Error ? error.message : "Unknown error"
-      }, 500);
+    // Check if it's a Stripe error
+    if (error instanceof Error && "statusCode" in error) {
+      console.error(
+        "❌ Stripe API error with status:",
+        (error as any).statusCode
+      );
     }
+
+    return c.json(
+      {
+        error: "Failed to get payment link status",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      500
+    );
+  }
 });
 
 // Refresh transaction status endpoint
