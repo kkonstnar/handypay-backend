@@ -7,12 +7,12 @@ const transactionRoutes = new Hono();
 // Get user transactions endpoint
 transactionRoutes.get("/:userId", async (c) => {
     try {
-        const authenticatedUser = c.get("user");
         const userId = c.req.param("userId");
         if (!userId) {
             return c.json({ error: "Missing userId parameter" }, 400);
         }
         // Verify ownership - users can only access their own transactions
+        const authenticatedUser = c.get("user");
         requireOwnership(authenticatedUser.id, userId);
         console.log("📊 Getting transactions for user:", userId);
         const userTransactions = await db
@@ -57,6 +57,9 @@ transactionRoutes.post("/cancel", async (c) => {
             return c.json({ error: "Missing required fields: transactionId, userId" }, 400);
         }
         console.log("🗑️ Cancelling transaction:", transactionId, "for user:", userId);
+        // Verify ownership - users can only cancel their own transactions
+        const authenticatedUser = c.get("user");
+        requireOwnership(authenticatedUser.id, userId);
         // Try to find transaction by multiple methods to handle different ID formats
         let transaction;
         // First, try exact match with transaction ID

@@ -12,21 +12,30 @@ app.use("*", cors({
 // Authentication middleware for protected routes
 const authMiddleware = async (c, next) => {
     try {
+        console.log("🔐 Auth middleware triggered for:", c.req.path);
+        console.log("🔐 Request headers:", Object.fromEntries(c.req.raw.headers.entries()));
         const { createAuth } = await import("./auth.js");
         const auth = createAuth(c.env);
+        console.log("🔐 Attempting to get session...");
         const session = await auth.api.getSession({
             headers: c.req.raw.headers,
         });
+        console.log("🔐 Session result:", session ? "Found" : "Not found");
+        if (session?.user) {
+            console.log("🔐 User found:", session.user.id);
+        }
         if (!session) {
+            console.log("❌ No session found, returning 401");
             return c.json({ error: "Unauthorized - Please log in" }, 401);
         }
         // Add user to context for use in route handlers
         c.set("user", session.user);
         c.set("session", session);
+        console.log("✅ Auth middleware passed, proceeding to route handler");
         await next();
     }
     catch (error) {
-        console.error("Auth middleware error:", error);
+        console.error("❌ Auth middleware error:", error);
         return c.json({ error: "Authentication failed" }, 401);
     }
 };
@@ -63,7 +72,8 @@ app.use("/api/stripe/*", async (c, next) => {
         c.req.path.startsWith("/api/stripe/user-account/") ||
         c.req.path === "/api/stripe/return" ||
         c.req.path === "/api/stripe/refresh" ||
-        c.req.path === "/api/stripe/create-payment-link") {
+        c.req.path === "/api/stripe/create-payment-link" ||
+        c.req.path.startsWith("/api/stripe/payment-link-status/")) {
         return next();
     }
     return authMiddleware(c, next);
@@ -105,39 +115,61 @@ app.get("/auth/test", async (c) => {
 app.get("/stripe/return", async (c) => {
     const accountId = c.req.query("account");
     const error = c.req.query("error");
+    const allParams = c.req.query(); // Get all query parameters
     console.log("🎉 Stripe onboarding return (root):", { accountId, error });
+    console.log("🔍 All query parameters received:", allParams);
+    console.log("🔍 Full request URL:", c.req.url);
+    // Also check for other common parameter names
+    const accountIdAlt = c.req.query("accountId") ||
+        c.req.query("acct") ||
+        c.req.query("stripe_account");
+    if (accountIdAlt && !accountId) {
+        console.log("🔄 Found account ID with alternative parameter name:", accountIdAlt);
+    }
+    // Use alternative account ID if primary is not found
+    const finalAccountId = accountId || accountIdAlt;
     if (error) {
         console.error("❌ Stripe onboarding error:", error);
         // Redirect back to app with error
         return c.redirect(`handypay://stripe/error?error=${encodeURIComponent(error)}`, 302);
     }
-    if (accountId) {
+    if (finalAccountId) {
         // Check if onboarding is actually completed by querying account status
         try {
-            console.log("🔍 Checking account status for:", accountId);
+            console.log("🔍 Checking account status for:", finalAccountId);
             const { getStripe } = await import("./services/stripe.js");
             const stripe = getStripe(c.env);
-            const account = await stripe.accounts.retrieve(accountId);
+            const account = await stripe.accounts.retrieve(finalAccountId);
             console.log("📊 Account status check:", {
                 chargesEnabled: account.charges_enabled,
                 detailsSubmitted: account.details_submitted,
-                payoutsEnabled: account.payouts_enabled
+                payoutsEnabled: account.payouts_enabled,
             });
-            if (account.charges_enabled) {
-                console.log("✅ Stripe onboarding actually completed for:", accountId);
+            // Check if onboarding is complete - either charges enabled OR details submitted
+            const isOnboardingComplete = account.charges_enabled || account.details_submitted;
+            if (isOnboardingComplete) {
+                console.log("✅ Stripe onboarding actually completed for:", finalAccountId, {
+                    chargesEnabled: account.charges_enabled,
+                    detailsSubmitted: account.details_submitted,
+                });
                 // Redirect back to app with success
-                return c.redirect(`handypay://stripe/success?accountId=${encodeURIComponent(accountId)}`, 302);
+                return c.redirect(`handypay://stripe/success?accountId=${encodeURIComponent(finalAccountId)}`, 302);
             }
             else {
-                console.log("⏳ Stripe onboarding not completed yet for:", accountId);
+                console.log("⏳ Stripe onboarding not completed yet for:", finalAccountId, {
+                    chargesEnabled: account.charges_enabled,
+                    detailsSubmitted: account.details_submitted,
+                });
                 // Redirect back to app indicating onboarding is still in progress
-                return c.redirect(`handypay://stripe/incomplete?accountId=${encodeURIComponent(accountId)}`, 302);
+                return c.redirect(`handypay://stripe/incomplete?accountId=${encodeURIComponent(finalAccountId)}`, 302);
             }
         }
         catch (statusError) {
             console.error("❌ Error checking account status:", statusError);
-            // If we can't check status, assume incomplete and let app handle it
-            return c.redirect(`handypay://stripe/incomplete?accountId=${encodeURIComponent(accountId)}`, 302);
+            // If we can't check status, try a simpler approach - just redirect to success
+            // The app will verify the actual status and handle accordingly
+            console.log("🔄 Account status check failed, redirecting to success for app to verify");
+            return c.redirect(`handypay://stripe/success?accountId=${encodeURIComponent(finalAccountId)}`, 302);
         }
     }
     // No account ID provided - redirect to generic incomplete state

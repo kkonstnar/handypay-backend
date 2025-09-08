@@ -299,9 +299,16 @@ stripeRoutes.get("/payment-link-status/:paymentLinkId", async (c) => {
             return c.json({ error: "Missing paymentLinkId parameter" }, 400);
         }
         console.log("🔗 Getting payment link status for:", paymentLinkId);
+        console.log("🔍 Full request details:", {
+            method: c.req.method,
+            url: c.req.url,
+            headers: Object.fromEntries(c.req.raw.headers.entries()),
+        });
         const { getStripe } = await import("../services/stripe.js");
         const stripe = getStripe(c.env);
+        console.log("🔍 Attempting to retrieve payment link from Stripe...");
         const paymentLink = await stripe.paymentLinks.retrieve(paymentLinkId);
+        console.log("✅ Payment link retrieved successfully:", paymentLink.id);
         // Check if payment link has reached its completion limit
         const completedSessions = paymentLink.restrictions?.completed_sessions?.limit || 0;
         const usedSessions = paymentLink.restrictions?.completed_sessions?.used || 0;
@@ -402,7 +409,19 @@ stripeRoutes.get("/payment-link-status/:paymentLinkId", async (c) => {
     }
     catch (error) {
         console.error("❌ Payment link status error:", error);
-        return c.json({ error: "Failed to get payment link status" }, 500);
+        console.error("❌ Error details:", {
+            message: error instanceof Error ? error.message : "Unknown error",
+            type: error instanceof Error ? error.constructor.name : "Unknown type",
+            stack: error instanceof Error ? error.stack : undefined,
+        });
+        // Check if it's a Stripe error
+        if (error instanceof Error && "statusCode" in error) {
+            console.error("❌ Stripe API error with status:", error.statusCode);
+        }
+        return c.json({
+            error: "Failed to get payment link status",
+            details: error instanceof Error ? error.message : "Unknown error",
+        }, 500);
     }
 });
 // Refresh transaction status endpoint

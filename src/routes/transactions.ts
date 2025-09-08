@@ -9,7 +9,6 @@ const transactionRoutes = new Hono();
 // Get user transactions endpoint
 transactionRoutes.get("/:userId", async (c) => {
   try {
-    const authenticatedUser = (c as any).get("user") as { id: string };
     const userId = c.req.param("userId");
 
     if (!userId) {
@@ -17,6 +16,7 @@ transactionRoutes.get("/:userId", async (c) => {
     }
 
     // Verify ownership - users can only access their own transactions
+    const authenticatedUser = (c as any).get("user") as { id: string };
     requireOwnership(authenticatedUser.id, userId);
 
     console.log("📊 Getting transactions for user:", userId);
@@ -75,6 +75,10 @@ transactionRoutes.post("/cancel", async (c) => {
       "for user:",
       userId
     );
+
+    // Verify ownership - users can only cancel their own transactions
+    const authenticatedUser = (c as any).get("user") as { id: string };
+    requireOwnership(authenticatedUser.id, userId);
 
     // Try to find transaction by multiple methods to handle different ID formats
     let transaction;
