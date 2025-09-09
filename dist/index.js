@@ -12,20 +12,30 @@ app.use("*", cors({
     credentials: true,
 }));
 // Better Auth API routes (must be mounted FIRST for OAuth to work)
-// Auth will be initialized per request with proper environment
+// Initialize Better Auth once and reuse
+let authInstance = null;
+const getAuthInstance = (env) => {
+    if (!authInstance) {
+        console.log("🔐 Initializing Better Auth instance...");
+        authInstance = createAuth(env);
+    }
+    return authInstance;
+};
 app.on(["GET", "POST"], "/api/auth/*", async (c) => {
     console.log("🔐 Better Auth route hit:", c.req.path, c.req.method);
     try {
         // Get environment from Cloudflare Workers context
         const env = c.env || process.env;
-        const authInstance = createAuth(env);
-        const response = await authInstance.api.handleRequest(c.req.raw);
+        // Get or create auth instance
+        const auth = getAuthInstance(env);
+        // Use Better Auth's handler directly
+        const response = await auth.api.handleRequest(c.req.raw);
         console.log("🔐 Better Auth response status:", response.status);
         return response;
     }
     catch (error) {
         console.error("❌ Better Auth error:", error);
-        return c.json({ error: "Better Auth error" }, 500);
+        return c.json({ error: "Better Auth error", details: error instanceof Error ? error.message : String(error) }, 500);
     }
 });
 // Authentication middleware for protected routes
@@ -35,7 +45,7 @@ const authMiddleware = async (c, next) => {
         console.log("🔐 Attempting to get session...");
         // Get environment from Cloudflare Workers context
         const env = c.env || process.env;
-        const authInstance = createAuth(env);
+        const authInstance = getAuthInstance(env);
         const session = await authInstance.api.getSession({
             headers: c.req.raw.headers,
         });
