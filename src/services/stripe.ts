@@ -45,7 +45,13 @@ export class StripeService {
   ) {
     try {
       console.log("Creating Stripe account link for user:", userId);
-      console.log("Input parameters:", { userId, account_id, firstName, lastName, email });
+      console.log("Input parameters:", {
+        userId,
+        account_id,
+        firstName,
+        lastName,
+        email,
+      });
 
       const stripe = getStripe(env);
       const { getDb } = await import("../utils/database.js");
@@ -62,22 +68,16 @@ export class StripeService {
         console.log("Creating new Stripe account for user:", userId);
 
         // Create new account for Jamaica (JM) with JMD currency
-        account = await stripe.accounts.create({
+        const accountData: any = {
           type: "custom",
           country: "JM",
           business_type: "individual",
           metadata: { userId },
-          email,
           capabilities: {
             transfers: { requested: true },
           },
           tos_acceptance: {
             service_agreement: "recipient",
-          },
-          individual: {
-            first_name: firstName,
-            last_name: lastName,
-            email,
           },
           settings: {
             payouts: {
@@ -88,7 +88,23 @@ export class StripeService {
             },
           },
           default_currency: "JMD",
-        });
+        };
+
+        // Only add email and individual info if we have valid email
+        if (email && email.trim() !== "") {
+          accountData.email = email;
+          accountData.individual = {
+            first_name: firstName,
+            last_name: lastName,
+            email,
+          };
+        } else {
+          console.log(
+            "⚠️ Creating account without email - will be added later"
+          );
+        }
+
+        account = await stripe.accounts.create(accountData);
         accountId = account.id;
 
         console.log(
@@ -98,20 +114,31 @@ export class StripeService {
           accountId,
           email: account.email,
           country: account.country,
-          type: account.type
+          type: account.type,
         });
       } else {
         console.log("Using existing Stripe account:", accountId);
 
-        // Update existing account details
-        account = await stripe.accounts.update(accountId, {
-          email,
-          business_profile: {
+        // Update existing account details (only if we have valid data)
+        const updateData: any = {
+          metadata: { userId },
+        };
+
+        // Only update email if it's valid and not empty
+        if (email && email.trim() !== "") {
+          updateData.email = email;
+          updateData.business_profile = {
             name: `${firstName} ${lastName}`.trim() || "HandyPay Merchant",
             support_email: email,
-          },
-          metadata: { userId },
-        });
+          };
+        } else {
+          console.log("⚠️ Skipping email update - no valid email provided");
+          updateData.business_profile = {
+            name: `${firstName} ${lastName}`.trim() || "HandyPay Merchant",
+          };
+        }
+
+        account = await stripe.accounts.update(accountId, updateData);
       }
 
       // Try to save the Stripe account ID to database (don't fail if user doesn't exist yet)
@@ -219,7 +246,47 @@ export class StripeService {
         console.error("❌ No accountId provided to save to database!");
       }
 
+      // Check account status before creating link
+      console.log("Checking account status before creating link...");
+      const accountStatus = await stripe.accounts.retrieve(accountId!);
+      console.log("Account status before link creation:", {
+        id: accountStatus.id,
+        charges_enabled: accountStatus.charges_enabled,
+        details_submitted: accountStatus.details_submitted,
+        requirements: accountStatus.requirements,
+      });
+
+      // If account is already complete, don't create a new onboarding link
+      if (accountStatus.details_submitted && accountStatus.charges_enabled) {
+        console.log(
+          "Account is already complete, creating account link for dashboard instead"
+        );
+        const accountLink = await stripe.accountLinks.create({
+          account: accountId!,
+          refresh_url,
+          return_url,
+          type: "account_update", // Use account_update instead of onboarding
+          collect: "eventually_due",
+        });
+        console.log(
+          "Stripe account update link created successfully:",
+          accountLink.url
+        );
+        return {
+          url: accountLink.url,
+          accountId: accountId,
+        };
+      }
+
       // Create account link for onboarding
+      console.log("Creating account onboarding link with parameters:", {
+        account: accountId,
+        refresh_url,
+        return_url,
+        type: "account_onboarding",
+        collect: "eventually_due",
+      });
+
       const accountLink = await stripe.accountLinks.create({
         account: accountId!,
         refresh_url,
@@ -229,7 +296,10 @@ export class StripeService {
       });
 
       console.log("Stripe account link created successfully:", accountLink.url);
-      console.log("Returning account data:", { url: accountLink.url, accountId });
+      console.log("Returning account data:", {
+        url: accountLink.url,
+        accountId: accountId,
+      });
 
       return {
         url: accountLink.url,
@@ -237,9 +307,15 @@ export class StripeService {
       };
     } catch (error) {
       console.error("Error creating Stripe account link:", error);
+      console.error("Account ID that failed:", account_id || "unknown");
+      console.error("Full error details:", JSON.stringify(error, null, 2));
+
       if (error instanceof Stripe.errors.StripeError) {
-        throw new Error(`Stripe Error: ${error.message}`);
+        console.error("Stripe error type:", error.type);
+        console.error("Stripe error code:", error.code);
+        throw new Error(`Stripe Error (${error.code}): ${error.message}`);
       }
+
       throw new Error("Failed to create Stripe account link");
     }
   }

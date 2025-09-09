@@ -6,9 +6,6 @@ compatibility_flags = ["nodejs_compat"]
 [build]
 command = "npm run build"
 
-[build.upload]
-format = "modules"
-
 # Environment variables - Set via Cloudflare Workers dashboard or wrangler secrets
 # DO NOT commit actual secret values to repository
 [vars]

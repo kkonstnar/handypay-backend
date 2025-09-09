@@ -3,64 +3,7 @@ import { db } from "../db.js";
 import { users, transactions, payouts } from "../schema.js";
 import { eq } from "drizzle-orm";
 const authRoutes = new Hono();
-// Google OAuth initiation endpoint (redirects to Google)
-authRoutes.get("/google", async (c) => {
-    try {
-        const state = c.req.query("state");
-        const redirectUri = c.req.query("redirect_uri");
-        if (!redirectUri) {
-            return c.json({ error: "Missing redirect_uri parameter" }, 400);
-        }
-        console.log("🔄 Initiating Google OAuth flow:", { state, redirectUri });
-        // Google OAuth parameters
-        const googleAuthUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-        googleAuthUrl.searchParams.set("client_id", process.env.GOOGLE_CLIENT_ID);
-        googleAuthUrl.searchParams.set("redirect_uri", redirectUri);
-        googleAuthUrl.searchParams.set("response_type", "code");
-        googleAuthUrl.searchParams.set("scope", "openid profile email");
-        googleAuthUrl.searchParams.set("access_type", "offline");
-        googleAuthUrl.searchParams.set("prompt", "select_account");
-        if (state) {
-            googleAuthUrl.searchParams.set("state", state);
-        }
-        console.log("🔗 Redirecting to Google OAuth:", googleAuthUrl.toString());
-        // Redirect to Google OAuth
-        return c.redirect(googleAuthUrl.toString());
-    }
-    catch (error) {
-        console.error("❌ Google OAuth initiation error:", error);
-        return c.json({ error: "Failed to initiate Google OAuth" }, 500);
-    }
-});
-// Google OAuth callback endpoint (handles redirect from Google)
-authRoutes.get("/google/callback", async (c) => {
-    try {
-        const code = c.req.query("code");
-        const state = c.req.query("state");
-        const error = c.req.query("error");
-        console.log("🔄 Google OAuth callback received:", {
-            code: !!code,
-            state,
-            error,
-        });
-        if (error) {
-            console.error("❌ Google OAuth error:", error);
-            // Redirect back to app with error
-            return c.redirect(`handypay://oauth?error=${encodeURIComponent(error)}`);
-        }
-        if (code) {
-            console.log("✅ Google OAuth code received, redirecting to app...");
-            // Redirect back to app with the authorization code
-            return c.redirect(`handypay://oauth?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || "")}`);
-        }
-        console.error("❌ No authorization code or error received");
-        return c.redirect(`handypay://oauth?error=no_code`);
-    }
-    catch (error) {
-        console.error("❌ Google OAuth callback error:", error);
-        return c.redirect(`handypay://oauth?error=callback_error`);
-    }
-});
+// Better Auth handles all OAuth flows automatically - no custom endpoints needed
 // Test authentication endpoint for TestFlight reviewers
 authRoutes.post("/test-login", async (c) => {
     try {

@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { apiRoutes } from "./routes/index.js";
+import { createAuth } from "./auth.js";
 const app = new Hono();
+// Better Auth will be initialized in the fetch handler with proper environment
 // CORS middleware
 app.use("*", cors({
     origin: ["handypay://", "https://handypay-backend.handypay.workers.dev"],
@@ -9,14 +11,32 @@ app.use("*", cors({
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
 }));
+// Better Auth API routes (must be mounted FIRST for OAuth to work)
+// Auth will be initialized per request with proper environment
+app.on(["GET", "POST"], "/api/auth/*", async (c) => {
+    console.log("🔐 Better Auth route hit:", c.req.path, c.req.method);
+    try {
+        // Get environment from Cloudflare Workers context
+        const env = c.env || process.env;
+        const authInstance = createAuth(env);
+        const response = await authInstance.api.handleRequest(c.req.raw);
+        console.log("🔐 Better Auth response status:", response.status);
+        return response;
+    }
+    catch (error) {
+        console.error("❌ Better Auth error:", error);
+        return c.json({ error: "Better Auth error" }, 500);
+    }
+});
 // Authentication middleware for protected routes
 const authMiddleware = async (c, next) => {
     try {
         console.log("🔐 Auth middleware triggered for:", c.req.path);
-        const { createAuth } = await import("./auth.js");
-        const auth = createAuth(c.env);
         console.log("🔐 Attempting to get session...");
-        const session = await auth.api.getSession({
+        // Get environment from Cloudflare Workers context
+        const env = c.env || process.env;
+        const authInstance = createAuth(env);
+        const session = await authInstance.api.getSession({
             headers: c.req.raw.headers,
         });
         console.log("🔐 Session result:", session ? "Found" : "Not found");
@@ -82,8 +102,6 @@ app.use("/api/payouts/*", authMiddleware);
 // Test endpoint for auth configuration
 app.get("/test-auth", async (c) => {
     try {
-        const { createAuth } = await import("./auth.js");
-        const auth = createAuth(c.env);
         return c.json({ message: "Auth configured successfully" });
     }
     catch (error) {
@@ -357,29 +375,7 @@ app.get("/test-db", async (c) => {
         }, 500);
     }
 });
-// Simple auth endpoints for now (Better Auth integration can be improved later)
-app.get("/api/auth/session", async (c) => {
-    try {
-        // For now, return no session - this will be replaced with proper Better Auth
-        console.log("🔍 Session check requested - no active session");
-        return c.json(null, 404);
-    }
-    catch (error) {
-        console.error("Session check error:", error);
-        return c.json({ error: "Session check failed" }, 500);
-    }
-});
-app.post("/api/auth/sign-out", async (c) => {
-    try {
-        // For now, just return success - this will be replaced with proper Better Auth
-        console.log("🔐 Sign out requested");
-        return c.json({ success: true });
-    }
-    catch (error) {
-        console.error("Sign out error:", error);
-        return c.json({ error: "Sign out failed" }, 500);
-    }
-});
+// Better Auth now handles all auth routes including session and sign-out
 // Mount API routes
 app.route("/api", apiRoutes);
 // Debug endpoints
