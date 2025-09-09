@@ -46,7 +46,13 @@ app.on(["GET", "POST"], "/api/auth/*", async (c) => {
     return response;
   } catch (error) {
     console.error("❌ Better Auth error:", error);
-    return c.json({ error: "Better Auth error", details: error instanceof Error ? error.message : String(error) }, 500);
+    return c.json(
+      {
+        error: "Better Auth error",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
   }
 });
 
@@ -297,180 +303,7 @@ app.get("/stripe/refresh", async (c) => {
   return c.redirect("handypay://stripe/refresh", 302);
 });
 
-// Manual Google OAuth implementation (temporary workaround)
-app.get("/auth/google", async (c) => {
-  console.log("=== MANUAL GOOGLE OAUTH ===");
-
-  const env = c.env as any;
-  const GOOGLE_CLIENT_ID =
-    env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
-  const BETTER_AUTH_URL = env?.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL;
-
-  if (!GOOGLE_CLIENT_ID) {
-    return c.json({ error: "Google Client ID not configured" }, 500);
-  }
-
-  // Construct Google OAuth URL manually
-  const baseUrl = "https://accounts.google.com/o/oauth2/v2/auth";
-  const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: `${BETTER_AUTH_URL}/auth/callback/google`,
-    response_type: "code",
-    scope: "openid profile email",
-    prompt: "select_account",
-    access_type: "offline",
-  });
-
-  const oauthUrl = `${baseUrl}?${params.toString()}`;
-
-  console.log("Redirecting to:", oauthUrl);
-
-  // Return redirect response
-  return c.redirect(oauthUrl, 302);
-});
-
-app.post("/auth/google/token", async (c) => {
-  try {
-    const body = await c.req.json();
-    const { code, redirectUri } = body;
-
-    console.log("=== GOOGLE TOKEN EXCHANGE ===");
-    console.log("Code received:", code ? "yes" : "no");
-    console.log("Redirect URI:", redirectUri);
-
-    if (!code) {
-      return c.json({ error: "No authorization code provided" }, 400);
-    }
-
-    const env = c.env as any;
-    const GOOGLE_CLIENT_ID =
-      env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
-    const GOOGLE_CLIENT_SECRET =
-      env?.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
-
-    if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-      console.error("Missing Google OAuth credentials");
-      return c.json({ error: "Server configuration error" }, 500);
-    }
-
-    // Exchange authorization code for access token
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        code: code,
-        grant_type: "authorization_code",
-        redirect_uri:
-          redirectUri ||
-          `${
-            env?.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL
-          }/auth/callback/google`,
-      }),
-    });
-
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      console.error("Token exchange failed:", errorText);
-      return c.json(
-        { error: "Failed to exchange token", details: errorText },
-        400
-      );
-    }
-
-    const tokenData = await tokenResponse.json();
-    console.log("Token exchange successful");
-
-    // Get user info from Google
-    const userResponse = await fetch(
-      "https://www.googleapis.com/oauth2/v2/userinfo",
-      {
-        headers: {
-          Authorization: `Bearer ${tokenData.access_token}`,
-        },
-      }
-    );
-
-    if (!userResponse.ok) {
-      console.error("Failed to get user info from Google");
-      return c.json({ error: "Failed to get user information" }, 400);
-    }
-
-    const userInfo = await userResponse.json();
-    console.log("User info retrieved:", {
-      id: userInfo.id,
-      email: userInfo.email,
-    });
-
-    // Create user data in the expected format
-    const userData = {
-      user: {
-        id: userInfo.id,
-        email: userInfo.email,
-        name: userInfo.name,
-        picture: userInfo.picture,
-        provider: "google",
-      },
-      session: {
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token,
-        expires_in: tokenData.expires_in,
-        token_type: tokenData.token_type,
-      },
-    };
-
-    return c.json(userData);
-  } catch (error) {
-    console.error("Token exchange error:", error);
-    return c.json(
-      {
-        error: "Token exchange failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      500
-    );
-  }
-});
-
-app.get("/auth/callback/google", async (c) => {
-  console.log("=== GOOGLE OAUTH CALLBACK ===");
-
-  const url = new URL(c.req.url);
-  const code = url.searchParams.get("code");
-  const error = url.searchParams.get("error");
-
-  console.log("Callback params:", { code: !!code, error });
-
-  if (error) {
-    console.error("OAuth error:", error);
-    // Redirect back to app with error
-    const errorRedirectUrl = `handypay://auth/callback?error=${encodeURIComponent(
-      error
-    )}`;
-    console.log("Redirecting to app with error:", errorRedirectUrl);
-    return c.redirect(errorRedirectUrl, 302);
-  }
-
-  if (!code) {
-    console.log("No authorization code received");
-    const errorRedirectUrl = `handypay://auth/callback?error=no_code`;
-    return c.redirect(errorRedirectUrl, 302);
-  }
-
-  // Redirect back to mobile app with the authorization code
-  const successRedirectUrl = `handypay://auth/callback?code=${encodeURIComponent(
-    code
-  )}`;
-  console.log(
-    "Redirecting to app with code:",
-    successRedirectUrl.substring(0, 50) + "..."
-  );
-
-  return c.redirect(successRedirectUrl, 302);
-});
+// Manual OAuth endpoints removed - now using Better Auth's built-in social providers
 
 // Test route to verify routing is working
 app.get("/test-route", async (c) => {
