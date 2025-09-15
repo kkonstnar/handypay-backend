@@ -4,13 +4,14 @@ const paymentLinkRoutes = new Hono();
 // Create payment link endpoint
 paymentLinkRoutes.post("/create-payment-link", async (c) => {
     try {
-        const { handyproUserId, customerName, customerEmail, description, amount, taskDetails, dueDate, } = await c.req.json();
+        const { handyproUserId, customerName, customerEmail, description, amount, taskDetails, dueDate, destinationCharges, currency, paymentSource, // Track payment source
+         } = await c.req.json();
         if (!handyproUserId || !amount) {
             return c.json({
                 error: "Missing required fields: handyproUserId, amount",
             }, 400);
         }
-        console.log("💳 Creating payment link for user:", handyproUserId, "amount:", amount);
+        console.log("💳 Creating payment link for user:", handyproUserId, "amount:", amount, "currency:", currency || "USD");
         const paymentLink = await StripeService.createPaymentLink(c.env, {
             handyproUserId,
             customerName,
@@ -19,6 +20,8 @@ paymentLinkRoutes.post("/create-payment-link", async (c) => {
             amount,
             taskDetails,
             dueDate,
+            currency,
+            paymentSource,
         });
         return c.json({
             success: true,
@@ -27,11 +30,25 @@ paymentLinkRoutes.post("/create-payment-link", async (c) => {
     }
     catch (error) {
         console.error("❌ Payment link creation error:", error);
+        // Provide specific error messages
+        let errorMessage = "Failed to create payment link";
+        if (error instanceof Error) {
+            if (error.message.includes("payment method") ||
+                error.message.includes("payment method types")) {
+                errorMessage =
+                    "Payment method configuration issue. Please check your Stripe account settings or contact support.";
+            }
+            else if (error.message.includes("account not ready")) {
+                errorMessage =
+                    "Your Stripe account is not ready to accept payments. Please complete your onboarding.";
+            }
+            else {
+                errorMessage = error.message;
+            }
+        }
         return c.json({
             success: false,
-            error: error instanceof Error
-                ? error.message
-                : "Failed to create payment link",
+            error: errorMessage,
         }, 500);
     }
 });

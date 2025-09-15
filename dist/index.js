@@ -21,6 +21,126 @@ const getAuthInstance = (env) => {
     }
     return authInstance;
 };
+// Manual OAuth initiation endpoint - MUST be defined BEFORE catch-all route
+app.get("/api/auth/sign-in/google", async (c) => {
+    console.log("🔐 Manual Google OAuth initiation");
+    try {
+        const env = c.env || process.env;
+        const GOOGLE_CLIENT_ID = env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+        const BETTER_AUTH_URL = env?.BETTER_AUTH_URL ||
+            process.env.BETTER_AUTH_URL ||
+            "https://handypay-backend.handypay.workers.dev";
+        if (!GOOGLE_CLIENT_ID) {
+            return c.json({ error: "Google Client ID not configured" }, 500);
+        }
+        const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+            `client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}&` +
+            `redirect_uri=${encodeURIComponent(`${BETTER_AUTH_URL}/api/auth/callback/google`)}&` +
+            `response_type=code&` +
+            `scope=${encodeURIComponent("openid profile email")}&` +
+            `prompt=select_account&` +
+            `access_type=offline`;
+        console.log("🔗 Redirecting to Google OAuth:", oauthUrl.substring(0, 100) + "...");
+        return c.redirect(oauthUrl, 302);
+    }
+    catch (error) {
+        console.error("❌ OAuth initiation error:", error);
+        return c.json({
+            error: "OAuth initiation failed",
+            details: error instanceof Error ? error.message : String(error),
+        }, 500);
+    }
+});
+// Manual OAuth callback handler - MUST be defined BEFORE catch-all route
+app.get("/api/auth/callback/google", async (c) => {
+    console.log("🔐 Manual Google OAuth callback");
+    try {
+        const url = new URL(c.req.url);
+        const code = url.searchParams.get("code");
+        const error = url.searchParams.get("error");
+        if (error) {
+            console.error("❌ OAuth callback error:", error);
+            return c.redirect(`handypay://auth/callback?error=${encodeURIComponent(error)}`, 302);
+        }
+        if (!code) {
+            console.error("❌ No authorization code received");
+            return c.redirect(`handypay://auth/callback?error=no_code`, 302);
+        }
+        console.log("🔑 Received authorization code, exchanging for tokens...");
+        const env = c.env || process.env;
+        const GOOGLE_CLIENT_ID = env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+        const GOOGLE_CLIENT_SECRET = env?.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+        const BETTER_AUTH_URL = env?.BETTER_AUTH_URL ||
+            process.env.BETTER_AUTH_URL ||
+            "https://handypay-backend.handypay.workers.dev";
+        if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+            console.error("Missing Google OAuth credentials");
+            return c.redirect(`handypay://auth/callback?error=server_config`, 302);
+        }
+        // Exchange authorization code for access token
+        const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+                client_id: GOOGLE_CLIENT_ID,
+                client_secret: GOOGLE_CLIENT_SECRET,
+                code: code,
+                grant_type: "authorization_code",
+                redirect_uri: `${BETTER_AUTH_URL}/api/auth/callback/google`,
+            }),
+        });
+        if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            console.error("❌ Token exchange failed:", errorText);
+            return c.redirect(`handypay://auth/callback?error=token_exchange_failed`, 302);
+        }
+        const tokenData = await tokenResponse.json();
+        console.log("✅ Token exchange successful");
+        // Get user info from Google
+        const userResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+            headers: {
+                Authorization: `Bearer ${tokenData.access_token}`,
+            },
+        });
+        if (!userResponse.ok) {
+            console.error("❌ Failed to get user info from Google");
+            return c.redirect(`handypay://auth/callback?error=user_info_failed`, 302);
+        }
+        const userInfo = await userResponse.json();
+        console.log("👤 User info retrieved:", {
+            id: userInfo.id,
+            email: userInfo.email,
+            name: userInfo.name,
+        });
+        // Create user data in the expected format for mobile app
+        const userData = {
+            id: userInfo.id,
+            email: userInfo.email,
+            fullName: userInfo.name,
+            firstName: null,
+            lastName: null,
+            authProvider: "google",
+            appleUserId: null,
+            googleUserId: userInfo.id,
+            stripeAccountId: null,
+            stripeOnboardingCompleted: false,
+            memberSince: new Date().toISOString(),
+            faceIdEnabled: false,
+            safetyPinEnabled: false,
+            avatarUri: userInfo.picture,
+        };
+        // Create a simple success response that the mobile app can parse
+        const successUrl = `handypay://auth/callback?success=true&userData=${encodeURIComponent(JSON.stringify(userData))}`;
+        console.log("🎉 OAuth successful, redirecting to mobile app");
+        return c.redirect(successUrl, 302);
+    }
+    catch (error) {
+        console.error("❌ OAuth callback error:", error);
+        return c.redirect(`handypay://auth/callback?error=callback_failed`, 302);
+    }
+});
 app.on(["GET", "POST"], "/api/auth/*", async (c) => {
     console.log("🔐 Better Auth route hit:", c.req.path, c.req.method);
     try {
@@ -28,14 +148,46 @@ app.on(["GET", "POST"], "/api/auth/*", async (c) => {
         const env = c.env || process.env;
         // Get or create auth instance
         const auth = getAuthInstance(env);
-        // Use Better Auth's handler directly
-        const response = await auth.api.handleRequest(c.req.raw);
-        console.log("🔐 Better Auth response status:", response.status);
-        return response;
+        if (!auth) {
+            throw new Error("Auth instance is null/undefined");
+        }
+        // Debug what routes Better Auth supports
+        console.log("🔍 Available auth methods:", Object.getOwnPropertyNames(auth));
+        console.log("🔍 Request path:", c.req.path);
+        console.log("🔍 Request method:", c.req.method);
+        // Try to handle the request
+        const path = c.req.path;
+        console.log("🔍 Processing path:", path);
+        // For other auth routes, try Better Auth handler
+        try {
+            console.log("🔍 Trying Better Auth handler for path:", path);
+            const response = await auth.handler(c.req.raw);
+            console.log("🔐 Better Auth response status:", response.status);
+            return response;
+        }
+        catch (handlerError) {
+            console.error("❌ Auth handler error:", handlerError);
+            // Fallback for other routes
+            if (path === "/api/auth/session") {
+                console.log("🔄 Manual session routing");
+                try {
+                    const session = await auth.getSession(c.req.raw);
+                    return c.json({ data: session || null });
+                }
+                catch (sessionError) {
+                    console.error("❌ Session error:", sessionError);
+                    return c.json({ data: null }, 401);
+                }
+            }
+            return c.json({ error: "Route not found", path }, 404);
+        }
     }
     catch (error) {
         console.error("❌ Better Auth error:", error);
-        return c.json({ error: "Better Auth error", details: error instanceof Error ? error.message : String(error) }, 500);
+        return c.json({
+            error: "Better Auth error",
+            details: error instanceof Error ? error.message : String(error),
+        }, 500);
     }
 });
 // Authentication middleware for protected routes
@@ -52,14 +204,37 @@ const authMiddleware = async (c, next) => {
         console.log("🔐 Session result:", session ? "Found" : "Not found");
         if (session?.user) {
             console.log("🔐 User found:", session.user.id);
+            // Add user to context for use in route handlers
+            c.set("user", session.user);
+            c.set("session", session);
         }
-        if (!session) {
-            console.log("❌ No session found, returning 401");
-            return c.json({ error: "Unauthorized - Please log in" }, 401);
+        else {
+            // Fallback: Check for user ID in headers (for mobile app authentication)
+            const userId = c.req.header("X-User-ID");
+            const userProvider = c.req.header("X-User-Provider");
+            console.log("🔄 No Better Auth session, checking headers:", {
+                userId: !!userId,
+                userProvider: !!userProvider,
+            });
+            if (userId && userProvider) {
+                console.log("✅ Found user authentication in headers:", {
+                    userId,
+                    userProvider,
+                });
+                // Create a mock user object for header-based authentication
+                const mockUser = {
+                    id: userId,
+                    provider: userProvider,
+                    // Add other fields as needed for compatibility
+                };
+                c.set("user", mockUser);
+                c.set("session", { user: mockUser });
+            }
+            else {
+                console.log("❌ No authentication found (session or headers), returning 401");
+                return c.json({ error: "Unauthorized - Please log in" }, 401);
+            }
         }
-        // Add user to context for use in route handlers
-        c.set("user", session.user);
-        c.set("session", session);
         console.log("✅ Auth middleware passed, proceeding to route handler");
         await next();
     }
@@ -70,9 +245,21 @@ const authMiddleware = async (c, next) => {
 };
 // Authorization helper function
 const requireOwnership = (authenticatedUserId, requestedUserId) => {
+    console.log("🔒 Checking ownership:", {
+        authenticatedUserId,
+        requestedUserId,
+        authenticatedType: typeof authenticatedUserId,
+        requestedType: typeof requestedUserId,
+        areEqual: authenticatedUserId === requestedUserId,
+    });
     if (authenticatedUserId !== requestedUserId) {
+        console.error("❌ Ownership check failed:", {
+            authenticatedUserId,
+            requestedUserId,
+        });
         throw new Error("Forbidden - You can only access your own data");
     }
+    console.log("✅ Ownership check passed");
 };
 // Input sanitization helper functions
 const sanitizeEmail = (email) => {
@@ -97,12 +284,24 @@ app.use("/api/users/*", async (c, next) => {
 app.use("/api/stripe/*", async (c, next) => {
     // Skip auth for initial account creation, status checks, user account data, Stripe redirects, and payment links (used during onboarding and payments)
     if (c.req.path === "/api/stripe/create-account-link" ||
+        c.req.path === "/api/stripe/complete-onboarding" ||
+        c.req.path === "/api/stripe/webhook" ||
+        c.req.path === "/api/stripe/test-webhook" ||
         c.req.path.startsWith("/api/stripe/account-status") ||
         c.req.path.startsWith("/api/stripe/user-account/") ||
         c.req.path === "/api/stripe/return" ||
         c.req.path === "/api/stripe/refresh" ||
         c.req.path === "/api/stripe/create-payment-link" ||
         c.req.path.startsWith("/api/stripe/payment-link-status/")) {
+        return next();
+    }
+    return authMiddleware(c, next);
+});
+// Allow push token storage without full authentication (users need to store tokens during setup)
+app.use("/api/push-notifications/*", async (c, next) => {
+    // Allow token storage and deactivation without authentication
+    if (c.req.path === "/api/push-notifications/token" ||
+        c.req.path === "/api/push-notifications/token/deactivate") {
         return next();
     }
     return authMiddleware(c, next);
@@ -213,46 +412,31 @@ app.get("/stripe/refresh", async (c) => {
     // Default refresh redirect
     return c.redirect("handypay://stripe/refresh", 302);
 });
-// Manual Google OAuth implementation (temporary workaround)
-app.get("/auth/google", async (c) => {
-    console.log("=== MANUAL GOOGLE OAUTH ===");
-    const env = c.env;
-    const GOOGLE_CLIENT_ID = env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
-    const BETTER_AUTH_URL = env?.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL;
-    if (!GOOGLE_CLIENT_ID) {
-        return c.json({ error: "Google Client ID not configured" }, 500);
-    }
-    // Construct Google OAuth URL manually
-    const baseUrl = "https://accounts.google.com/o/oauth2/v2/auth";
-    const params = new URLSearchParams({
-        client_id: GOOGLE_CLIENT_ID,
-        redirect_uri: `${BETTER_AUTH_URL}/auth/callback/google`,
-        response_type: "code",
-        scope: "openid profile email",
-        prompt: "select_account",
-        access_type: "offline",
-    });
-    const oauthUrl = `${baseUrl}?${params.toString()}`;
-    console.log("Redirecting to:", oauthUrl);
-    // Return redirect response
-    return c.redirect(oauthUrl, 302);
-});
-app.post("/auth/google/token", async (c) => {
+// Manual OAuth callback handler
+app.get("/api/auth/callback/google", async (c) => {
+    console.log("🔐 Manual Google OAuth callback");
     try {
-        const body = await c.req.json();
-        const { code, redirectUri } = body;
-        console.log("=== GOOGLE TOKEN EXCHANGE ===");
-        console.log("Code received:", code ? "yes" : "no");
-        console.log("Redirect URI:", redirectUri);
-        if (!code) {
-            return c.json({ error: "No authorization code provided" }, 400);
+        const url = new URL(c.req.url);
+        const code = url.searchParams.get("code");
+        const error = url.searchParams.get("error");
+        if (error) {
+            console.error("❌ OAuth callback error:", error);
+            return c.redirect(`handypay://auth/callback?error=${encodeURIComponent(error)}`, 302);
         }
-        const env = c.env;
+        if (!code) {
+            console.error("❌ No authorization code received");
+            return c.redirect(`handypay://auth/callback?error=no_code`, 302);
+        }
+        console.log("🔑 Received authorization code, exchanging for tokens...");
+        const env = c.env || process.env;
         const GOOGLE_CLIENT_ID = env?.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
         const GOOGLE_CLIENT_SECRET = env?.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+        const BETTER_AUTH_URL = env?.BETTER_AUTH_URL ||
+            process.env.BETTER_AUTH_URL ||
+            "https://handypay-backend.handypay.workers.dev";
         if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
             console.error("Missing Google OAuth credentials");
-            return c.json({ error: "Server configuration error" }, 500);
+            return c.redirect(`handypay://auth/callback?error=server_config`, 302);
         }
         // Exchange authorization code for access token
         const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
@@ -265,17 +449,16 @@ app.post("/auth/google/token", async (c) => {
                 client_secret: GOOGLE_CLIENT_SECRET,
                 code: code,
                 grant_type: "authorization_code",
-                redirect_uri: redirectUri ||
-                    `${env?.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL}/auth/callback/google`,
+                redirect_uri: `${BETTER_AUTH_URL}/api/auth/callback/google`,
             }),
         });
         if (!tokenResponse.ok) {
             const errorText = await tokenResponse.text();
-            console.error("Token exchange failed:", errorText);
-            return c.json({ error: "Failed to exchange token", details: errorText }, 400);
+            console.error("❌ Token exchange failed:", errorText);
+            return c.redirect(`handypay://auth/callback?error=token_exchange_failed`, 302);
         }
         const tokenData = await tokenResponse.json();
-        console.log("Token exchange successful");
+        console.log("✅ Token exchange successful");
         // Get user info from Google
         const userResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
             headers: {
@@ -283,62 +466,41 @@ app.post("/auth/google/token", async (c) => {
             },
         });
         if (!userResponse.ok) {
-            console.error("Failed to get user info from Google");
-            return c.json({ error: "Failed to get user information" }, 400);
+            console.error("❌ Failed to get user info from Google");
+            return c.redirect(`handypay://auth/callback?error=user_info_failed`, 302);
         }
         const userInfo = await userResponse.json();
-        console.log("User info retrieved:", {
+        console.log("👤 User info retrieved:", {
             id: userInfo.id,
             email: userInfo.email,
+            name: userInfo.name,
         });
-        // Create user data in the expected format
+        // Create user data in the expected format for mobile app
         const userData = {
-            user: {
-                id: userInfo.id,
-                email: userInfo.email,
-                name: userInfo.name,
-                picture: userInfo.picture,
-                provider: "google",
-            },
-            session: {
-                access_token: tokenData.access_token,
-                refresh_token: tokenData.refresh_token,
-                expires_in: tokenData.expires_in,
-                token_type: tokenData.token_type,
-            },
+            id: userInfo.id,
+            email: userInfo.email,
+            fullName: userInfo.name,
+            firstName: null,
+            lastName: null,
+            authProvider: "google",
+            appleUserId: null,
+            googleUserId: userInfo.id,
+            stripeAccountId: null,
+            stripeOnboardingCompleted: false,
+            memberSince: new Date().toISOString(),
+            faceIdEnabled: false,
+            safetyPinEnabled: false,
+            avatarUri: userInfo.picture,
         };
-        return c.json(userData);
+        // Create a simple success response that the mobile app can parse
+        const successUrl = `handypay://auth/callback?success=true&userData=${encodeURIComponent(JSON.stringify(userData))}`;
+        console.log("🎉 OAuth successful, redirecting to mobile app");
+        return c.redirect(successUrl, 302);
     }
     catch (error) {
-        console.error("Token exchange error:", error);
-        return c.json({
-            error: "Token exchange failed",
-            details: error instanceof Error ? error.message : "Unknown error",
-        }, 500);
+        console.error("❌ OAuth callback error:", error);
+        return c.redirect(`handypay://auth/callback?error=callback_failed`, 302);
     }
-});
-app.get("/auth/callback/google", async (c) => {
-    console.log("=== GOOGLE OAUTH CALLBACK ===");
-    const url = new URL(c.req.url);
-    const code = url.searchParams.get("code");
-    const error = url.searchParams.get("error");
-    console.log("Callback params:", { code: !!code, error });
-    if (error) {
-        console.error("OAuth error:", error);
-        // Redirect back to app with error
-        const errorRedirectUrl = `handypay://auth/callback?error=${encodeURIComponent(error)}`;
-        console.log("Redirecting to app with error:", errorRedirectUrl);
-        return c.redirect(errorRedirectUrl, 302);
-    }
-    if (!code) {
-        console.log("No authorization code received");
-        const errorRedirectUrl = `handypay://auth/callback?error=no_code`;
-        return c.redirect(errorRedirectUrl, 302);
-    }
-    // Redirect back to mobile app with the authorization code
-    const successRedirectUrl = `handypay://auth/callback?code=${encodeURIComponent(code)}`;
-    console.log("Redirecting to app with code:", successRedirectUrl.substring(0, 50) + "...");
-    return c.redirect(successRedirectUrl, 302);
 });
 // Test route to verify routing is working
 app.get("/test-route", async (c) => {

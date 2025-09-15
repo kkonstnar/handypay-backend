@@ -228,6 +228,13 @@ stripeRoutes.post("/create-account-link", async (c) => {
       email,
     } = requestData;
 
+    console.log("🔍 URL details:", {
+      refresh_url: refresh_url ? `${refresh_url.substring(0, 50)}...` : "null",
+      return_url: return_url ? `${return_url.substring(0, 50)}...` : "null",
+      refresh_url_length: refresh_url?.length || 0,
+      return_url_length: return_url?.length || 0,
+    });
+
     if (!userId || !refresh_url || !return_url) {
       return c.json(
         {
@@ -613,6 +620,39 @@ stripeRoutes.post("/refresh-transaction", async (c) => {
   }
 });
 
+// Transfer existing platform funds to connected account
+stripeRoutes.post("/transfer-existing-funds/:userId", async (c) => {
+  try {
+    const userId = c.req.param("userId");
+
+    if (!userId) {
+      return c.json({ error: "Missing userId parameter" }, 400);
+    }
+
+    console.log(`💸 Transferring existing platform funds for user: ${userId}`);
+
+    // Get the Stripe service
+    const { StripeService } = await import("../services/stripe.js");
+
+    // Transfer existing funds
+    const result = await StripeService.transferExistingFundsToConnectedAccount(
+      c.env,
+      userId
+    );
+
+    return c.json(result);
+  } catch (error) {
+    console.error("❌ Error transferring existing funds:", error);
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to transfer funds",
+      },
+      500
+    );
+  }
+});
+
 // Get user balance from Stripe endpoint
 stripeRoutes.get("/balance/:userId", async (c) => {
   try {
@@ -639,24 +679,39 @@ stripeRoutes.get("/balance/:userId", async (c) => {
       .limit(1);
 
     if (userAccount.length === 0 || !userAccount[0].stripeAccountId) {
+      console.log("❌ No Stripe account found for user:", userId);
       return c.json({ error: "No Stripe account found for user" }, 404);
     }
 
     const stripeAccountId = userAccount[0].stripeAccountId;
+    console.log("✅ Found Stripe account for user:", {
+      userId,
+      stripeAccountId,
+    });
 
     const { getStripe } = await import("../services/stripe.js");
     const stripe = getStripe(c.env);
 
     // Get balance from Stripe
+    console.log("🔍 Retrieving balance for Stripe account:", stripeAccountId);
     const balance = await stripe.balance.retrieve({
       stripeAccount: stripeAccountId,
+    });
+
+    console.log("🔍 Raw Stripe balance response:", {
+      available: balance.available,
+      pending: balance.pending,
+      connect_reserved: balance.connect_reserved,
     });
 
     // Calculate available balance (pending payouts are deducted automatically by Stripe)
     const availableBalance = balance.available.reduce(
       (total: number, balanceItem: any) => {
-        if (balanceItem.currency === "usd") {
-          // Stripe uses USD, convert to JMD
+        if (balanceItem.currency === "jmd") {
+          // Jamaican account balance is already in JMD
+          return total + balanceItem.amount;
+        } else if (balanceItem.currency === "usd") {
+          // Convert USD to JMD for compatibility
           return total + balanceItem.amount * 160; // Approximate USD to JMD conversion
         }
         return total;
@@ -668,6 +723,14 @@ stripeRoutes.get("/balance/:userId", async (c) => {
       available: availableBalance,
       currency: "JMD",
       stripeBalance: balance.available,
+      balanceItems: balance.available.map((item) => ({
+        currency: item.currency,
+        amount: item.amount,
+      })),
+      message:
+        availableBalance === 0
+          ? "Account has no balance yet - this is normal if no payments have been received"
+          : "Account has balance",
     });
 
     return c.json({
@@ -908,6 +971,52 @@ stripeRoutes.post("/account-status", async (c) => {
       },
       500
     );
+  }
+});
+
+// Test endpoint to manually trigger webhook logic for debugging
+stripeRoutes.post("/test-webhook", async (c) => {
+  try {
+    const { userId, accountId } = await c.req.json();
+
+    console.log(
+      "🧪 Testing webhook logic for user:",
+      userId,
+      "account:",
+      accountId
+    );
+
+    if (!userId || !accountId) {
+      return c.json({ error: "Missing userId or accountId" }, 400);
+    }
+
+    // Get the Stripe account status
+    const accountStatus = await StripeService.getAccountStatus(
+      c.env,
+      accountId
+    );
+
+    console.log("📊 Test webhook - account status:", accountStatus);
+
+    // Simulate the webhook payload
+    const mockAccount = {
+      id: accountId,
+      charges_enabled: accountStatus.charges_enabled,
+      details_submitted: accountStatus.details_submitted,
+      requirements: accountStatus.requirements,
+    };
+
+    // Call our webhook handler
+    await StripeService.handleAccountUpdated(c.env, mockAccount);
+
+    return c.json({
+      success: true,
+      message: "Test webhook processed",
+      accountStatus,
+    });
+  } catch (error) {
+    console.error("❌ Test webhook error:", error);
+    return c.json({ error: "Test webhook failed" }, 500);
   }
 });
 

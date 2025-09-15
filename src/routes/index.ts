@@ -4,6 +4,7 @@ import { paymentLinkRoutes } from "./payment-links.js";
 import { userRoutes } from "./users.js";
 import { transactionRoutes } from "./transactions.js";
 import { payoutRoutes } from "./payouts.js";
+import { pushNotificationRoutes } from "./push-notifications.js";
 
 const apiRoutes = new Hono();
 
@@ -13,5 +14,6 @@ apiRoutes.route("/stripe", paymentLinkRoutes); // Payment links are under /api/s
 apiRoutes.route("/users", userRoutes);
 apiRoutes.route("/transactions", transactionRoutes);
 apiRoutes.route("/payouts", payoutRoutes);
+apiRoutes.route("/push-notifications", pushNotificationRoutes);
 
 export { apiRoutes };

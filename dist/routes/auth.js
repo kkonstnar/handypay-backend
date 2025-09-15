@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db } from "../db.js";
+import { db, initializeDatabase } from "../db.js";
 import { users, transactions, payouts } from "../schema.js";
 import { eq } from "drizzle-orm";
 const authRoutes = new Hono();
@@ -7,6 +7,8 @@ const authRoutes = new Hono();
 // Test authentication endpoint for TestFlight reviewers
 authRoutes.post("/test-login", async (c) => {
     try {
+        // Initialize database with environment variables
+        initializeDatabase(c.env);
         console.log("🧪 Test authentication requested");
         // Use predefined test account credentials
         const testUser = {
@@ -75,6 +77,8 @@ authRoutes.post("/test-login", async (c) => {
 // Google OAuth token exchange endpoint (for mobile app)
 authRoutes.post("/google/token", async (c) => {
     try {
+        // Initialize database with environment variables
+        initializeDatabase(c.env);
         const { code, redirectUri, codeVerifier } = await c.req.json();
         console.log("🔄 Processing Google OAuth token exchange");
         if (!code) {

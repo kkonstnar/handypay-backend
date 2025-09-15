@@ -10,6 +10,9 @@ export const users = pgTable("users", {
     googleUserId: text("google_user_id"), // Google provider ID (can be linked to account)
     stripeAccountId: text("stripe_account_id"),
     stripeOnboardingCompleted: boolean("stripe_onboarding_completed").default(false),
+    isBanned: boolean("is_banned").default(false),
+    banReason: text("ban_reason"),
+    bannedAt: timestamp("banned_at", { withTimezone: true }),
     // Additional fields from your current schema
     faceIdEnabled: boolean("face_id_enabled").default(false),
     safetyPinEnabled: boolean("safety_pin_enabled").default(false),
@@ -50,6 +53,12 @@ export const transactions = pgTable("transactions", {
     paymentMethod: text("payment_method"), // 'qr_code' | 'payment_link' | 'card'
     cardLast4: text("card_last_4"),
     cardBrand: text("card_brand"),
+    stripePaymentMethodType: text("stripe_payment_method_type"), // 'card' | 'paypal' | 'cashapp' | 'us_bank_account' | 'link' | 'apple_pay' | 'google_pay'
+    // Timestamps for different states
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    // Failure details
+    failureReason: text("failure_reason"),
     // Additional metadata
     metadata: text("metadata"), // JSON string for additional data
     notes: text("notes"),
@@ -93,6 +102,44 @@ export const payouts = pgTable("payouts", {
     // Description and notes
     description: text("description"),
     // Timestamps
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+// Push notification tokens table
+export const pushTokens = pgTable("push_tokens", {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+        .notNull()
+        .references(() => users.id),
+    // Token details
+    token: text("token").notNull(), // Expo push token
+    deviceType: text("device_type").notNull(), // 'ios' | 'android'
+    deviceId: text("device_id"), // Unique device identifier
+    // Status and management
+    isActive: boolean("is_active").default(true),
+    lastUsed: timestamp("last_used", { withTimezone: true }),
+    // Timestamps
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+export const bannedAccounts = pgTable("banned_accounts", {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id),
+    stripeAccountId: text("stripe_account_id"),
+    email: text("email"),
+    banReason: text("ban_reason").notNull(),
+    banType: text("ban_type").notNull(), // 'manual', 'stripe_restricted', 'fraud', 'abuse'
+    bannedBy: text("banned_by"), // Admin user ID who banned them
+    evidence: text("evidence"), // Details about why they were banned
+    // Stripe-specific fields
+    stripeRestrictions: text("stripe_restrictions"), // JSON string of Stripe restrictions
+    stripeDisabledReason: text("stripe_disabled_reason"),
+    // Status
+    isActive: boolean("is_active").default(true), // Can unban by setting to false
+    appealStatus: text("appeal_status").default("none"), // 'none', 'pending', 'approved', 'denied'
+    // Timestamps
+    bannedAt: timestamp("banned_at", { withTimezone: true }).notNull(),
+    unbannedAt: timestamp("unbanned_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

@@ -11,12 +11,30 @@ BETTER_AUTH_SECRET=your_random_secret_key_here
 # PostgreSQL connection string
 DATABASE_URL=postgresql://username:password@host:port/database
 
+# Stripe Configuration
+# Get these from Stripe Dashboard: https://dashboard.stripe.com/
+STRIPE_TEST_SECRET_KEY=sk_test_your_stripe_secret_key_here
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
+# Note: STRIPE_TEST_WEBHOOK_SECRET is also supported for backward compatibility
+
 # Server Configuration
 PORT=3000
 
 # Instructions:
 # 1. Copy this file to .env
 # 2. Fill in your actual values
-# 3. For Google OAuth, create credentials at: https://console.cloud.google.com/
-# 4. Set authorized redirect URIs to: https://handypay-backend.onrender.com/auth/callback/google
-# 5. Generate a random secret for BETTER_AUTH_SECRET (you can use: openssl rand -hex 32)
+# 3. For Stripe, create API keys at: https://dashboard.stripe.com/apikeys
+# 4. For Stripe webhooks:
+#    - Go to: https://dashboard.stripe.com/webhooks
+#    - Add endpoint: https://handypay-backend.onrender.com/api/stripe/webhook
+#    - Select events:
+#      - account.updated
+#      - checkout.session.completed
+#      - invoice.payment_succeeded
+#      - invoice.payment_failed
+#      - payment_intent.succeeded
+#      - payment_intent.payment_failed
+#    - Copy the webhook secret to STRIPE_WEBHOOK_SECRET
+# 5. For Google OAuth, create credentials at: https://console.cloud.google.com/
+# 6. Set authorized redirect URIs to: https://handypay-backend.onrender.com/auth/callback/google
+# 7. Generate a random secret for BETTER_AUTH_SECRET (you can use: openssl rand -hex 32)

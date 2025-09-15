@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db } from "../db.js";
+import { db, initializeDatabase } from "../db.js";
 import { transactions } from "../schema.js";
 import { eq, desc } from "drizzle-orm";
 import { requireOwnership } from "../index.js";
@@ -9,50 +9,140 @@ const transactionRoutes = new Hono();
 // Get user transactions endpoint
 transactionRoutes.get("/:userId", async (c) => {
   try {
-    const userId = c.req.param("userId");
+    // Initialize database with environment variables
+    initializeDatabase((c as any).env);
 
-    if (!userId) {
-      return c.json({ error: "Missing userId parameter" }, 400);
-    }
-
-    // Verify ownership - users can only access their own transactions
-    const authenticatedUser = (c as any).get("user") as { id: string };
-    requireOwnership(authenticatedUser.id, userId);
-
-    console.log("📊 Getting transactions for user:", userId);
-
-    const userTransactions = await db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.userId, userId))
-      .orderBy(desc(transactions.createdAt));
-
-    // Transform to match frontend interface
-    const formattedTransactions = userTransactions.map((tx) => ({
-      id: tx.id,
-      type: tx.type,
-      amount: tx.amount / 100, // Convert cents to dollars for frontend
-      description: tx.description,
-      merchant: tx.merchant,
-      date: tx.date,
-      status: tx.status,
-      cardLast4: tx.cardLast4,
-      qrCode: tx.qrCode,
-      expiresAt: tx.expiresAt,
-      paymentMethod: tx.paymentMethod,
-      stripePaymentIntentId: tx.stripePaymentIntentId,
-      stripeInvoiceId: tx.stripeInvoiceId,
-      stripePaymentLinkId: tx.stripePaymentLinkId,
-      customerName: tx.customerName,
-      customerEmail: tx.customerEmail,
-    }));
-
-    return c.json({
-      success: true,
-      transactions: formattedTransactions,
+    // Add timeout to prevent hanging requests (30 seconds)
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Request timeout")), 30000);
     });
+
+    const mainLogic = async () => {
+      const userId = c.req.param("userId");
+
+      if (!userId) {
+        return c.json({ error: "Missing userId parameter" }, 400);
+      }
+
+      // Verify ownership - users can only access their own transactions
+      const authenticatedUser = (c as any).get("user") as
+        | { id: string }
+        | undefined;
+
+      console.log("🔐 Authenticated user in transactions route:", {
+        hasUser: !!authenticatedUser,
+        userId: authenticatedUser?.id,
+        userType: typeof authenticatedUser?.id,
+        requestUserId: userId,
+        requestUserIdType: typeof userId,
+      });
+
+      if (!authenticatedUser || !authenticatedUser.id) {
+        console.error("❌ No authenticated user found in context");
+        return c.json({ error: "Authentication required" }, 401);
+      }
+
+      requireOwnership(authenticatedUser.id, userId);
+
+      console.log("📊 Getting transactions for user:", userId);
+
+      try {
+        console.log("🔍 Executing database query for user:", userId);
+
+        let userTransactions;
+        try {
+          userTransactions = await db
+            .select()
+            .from(transactions)
+            .where(eq(transactions.userId, userId))
+            .orderBy(desc(transactions.createdAt));
+        } catch (dbQueryError) {
+          console.error(
+            "❌ Database query failed, attempting retry:",
+            dbQueryError
+          );
+
+          // Force database reconnection and retry once
+          const dbModule = await import("../db.js");
+          if (
+            dbModule &&
+            typeof (dbModule as any).resetDatabaseConnection === "function"
+          ) {
+            (dbModule as any).resetDatabaseConnection();
+          }
+
+          // Wait a moment before retrying
+          await new Promise((resolve) => setTimeout(resolve, 100));
+
+          // Retry the query
+          userTransactions = await db
+            .select()
+            .from(transactions)
+            .where(eq(transactions.userId, userId))
+            .orderBy(desc(transactions.createdAt));
+
+          console.log("✅ Database query retry successful");
+        }
+
+        console.log("📊 Database query completed:", {
+          transactionCount: userTransactions.length,
+          firstTransaction: userTransactions[0]
+            ? {
+                id: userTransactions[0].id,
+                type: userTransactions[0].type,
+                status: userTransactions[0].status,
+              }
+            : null,
+        });
+
+        // Transform to match frontend interface
+        const formattedTransactions = userTransactions.map((tx) => ({
+          id: tx.id,
+          type: tx.type,
+          amount: tx.amount / 100, // Convert cents to dollars for frontend
+          currency: tx.currency, // Include currency field
+          description: tx.description,
+          merchant: tx.merchant,
+          date: tx.date,
+          status: tx.status,
+          cardLast4: tx.cardLast4,
+          qrCode: tx.qrCode,
+          expiresAt: tx.expiresAt,
+          paymentMethod: tx.paymentMethod,
+          stripePaymentIntentId: tx.stripePaymentIntentId,
+          stripeInvoiceId: tx.stripeInvoiceId,
+          stripePaymentLinkId: tx.stripePaymentLinkId,
+          customerName: tx.customerName,
+          customerEmail: tx.customerEmail,
+          createdAt: tx.createdAt ? new Date(tx.createdAt) : undefined, // When transaction was created
+          completedAt:
+            tx.status === "completed" && tx.updatedAt
+              ? new Date(tx.updatedAt)
+              : undefined, // When transaction was completed
+        }));
+
+        console.log(
+          "✅ Returning formatted transactions:",
+          formattedTransactions.length
+        );
+        return c.json({
+          success: true,
+          transactions: formattedTransactions,
+        });
+      } catch (dbError) {
+        console.error("❌ Database query error:", dbError);
+        return c.json({ error: "Database query failed" }, 500);
+      }
+    };
+
+    // Execute main logic with timeout protection
+    const result = await Promise.race([mainLogic(), timeoutPromise]);
+    return result as any;
   } catch (error) {
     console.error("❌ Transactions error:", error);
+    if (error instanceof Error && error.message === "Request timeout") {
+      return c.json({ error: "Request timeout" }, 408);
+    }
     return c.json({ error: "Failed to get transactions" }, 500);
   }
 });
@@ -60,6 +150,9 @@ transactionRoutes.get("/:userId", async (c) => {
 // Cancel transaction endpoint
 transactionRoutes.post("/cancel", async (c) => {
   try {
+    // Initialize database with environment variables
+    initializeDatabase((c as any).env);
+
     const { transactionId, userId } = await c.req.json();
 
     if (!transactionId || !userId) {

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db } from "../db.js";
+import { db, initializeDatabase } from "../db.js";
 import { payoutRules, payouts, transactions, users } from "../schema.js";
 import { eq, sql } from "drizzle-orm";
 const payoutRoutes = new Hono();
@@ -7,6 +7,8 @@ const payoutRoutes = new Hono();
 // Initialize default payout rules if they don't exist
 payoutRoutes.get("/rules/init", async (c) => {
     try {
+        // Initialize database with environment variables
+        initializeDatabase(c.env);
         const existingRules = await db
             .select()
             .from(payoutRules)
@@ -34,6 +36,8 @@ payoutRoutes.get("/rules/init", async (c) => {
 // Automatic payout generation endpoint (called by cron job or scheduled task)
 payoutRoutes.post("/generate-automatic", async (c) => {
     try {
+        // Initialize database with environment variables
+        initializeDatabase(c.env);
         console.log("🤖 Starting automatic payout generation...");
         // Get all users with available balance above minimum
         const usersWithBalance = await db.execute(sql `
@@ -84,6 +88,8 @@ payoutRoutes.post("/generate-automatic", async (c) => {
 // Test endpoint to manually trigger account update webhook logic
 payoutRoutes.post("/test-account-update", async (c) => {
     try {
+        // Initialize database with environment variables
+        initializeDatabase(c.env);
         const { accountId, userId } = await c.req.json();
         console.log("🧪 Testing account update webhook logic:", {
             accountId,

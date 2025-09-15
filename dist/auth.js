@@ -44,14 +44,14 @@ export function createAuth(env) {
             google: {
                 clientId: GOOGLE_CLIENT_ID,
                 clientSecret: GOOGLE_CLIENT_SECRET,
-                redirectURI: BETTER_AUTH_URL + "/auth/callback/google",
+                redirectURI: "/api/auth/callback/google",
                 scopes: ["openid", "profile", "email"],
                 prompt: "select_account",
             },
             apple: {
                 clientId: APPLE_CLIENT_ID,
                 clientSecret: APPLE_CLIENT_SECRET,
-                redirectURI: BETTER_AUTH_URL + "/auth/callback/apple",
+                redirectURI: "/api/auth/callback/apple",
                 scopes: ["name", "email"],
             },
         },
@@ -64,6 +64,10 @@ export function createAuth(env) {
             "handypay://",
             "https://handypay-backend.handypay.workers.dev",
             "exp://*",
+            "https://accounts.google.com",
+            "https://www.googleapis.com",
+            "https://appleid.apple.com",
+            "https://www.appleid.apple.com",
         ],
         callbacks: {
             async redirect({ url, baseUrl }) {
@@ -74,7 +78,8 @@ export function createAuth(env) {
                     return url; // Use the original mobile redirect URL
                 }
                 // If coming from OAuth callback and no mobile redirect, default to mobile app
-                if (url.includes("/callback/google") || url.includes("/callback/apple")) {
+                if (url.includes("/callback/google") ||
+                    url.includes("/callback/apple")) {
                     console.log("OAuth callback without mobile redirect, using default");
                     return "handypay://auth/callback";
                 }
